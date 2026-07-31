@@ -28,7 +28,7 @@ sims/batch1/
     config.sh        which reporting model to read, and how to fit it
     manifest.tsv     + the batch hash it ran against, and the rb identity
     output/  aux/  results/
-legacy/              the previous TreeSim pipeline, preserved verbatim
+bin/pyrate/          PyRate and BDS inference scripts; sampling/ holds their prior.rev
 ```
 
 ## Running
@@ -85,8 +85,10 @@ result cannot be scored against the wrong truth.
 ## Scope
 
 `MODEL=fbdr` is wired. `bds` and `pyrate` remain as config keys and are rejected with a
-clear error until reconnected; the previous TreeSim-based pipeline is preserved verbatim
-under `legacy/`.
+clear error until reconnected. Their scripts are in `bin/pyrate/` and `sampling/`, and
+`bin/pyrate.sh` reads the same `taxon/min_age/max_age/status` specimen format `bin/sim.R`
+already writes, so reconnecting them needs no separate simulator. The previous TreeSim
+pipeline is in git history at 8563117.
 
 ## Toolchain (this machine)
 
