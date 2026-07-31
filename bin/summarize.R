@@ -1,64 +1,315 @@
-#!/usr/bin/Rscript
+###
+# SBC figures for the SBC study: the 9 skyline rates, plus a row of the
+# per-taxon latents (b, d, tau1).
+#
+# Adapted from skyfbdr_SBC.Rmd (David Cerny) for SBC 0.5 and this repo's layout:
+#  - default_diagnostics / messages / warnings must be per-fit, not empty/NULL
+#  - thin_ranks = 1 (there are ~750 retained draws per rep; adaptive thinning wants more)
+#  - true values are aligned to the reps that actually produced a complete log
+#
+# The rates are one value per replicate, so they go through SBC as usual. b, d and
+# tau1 are per-taxon, so one extinct taxon is drawn per replicate: taxa within a
+# replicate share a history, and pooling them would judge the ranks against a band
+# built for far more independent observations than there are. Every panel is therefore
+# one rank per replicate. The latents still get their own SBC_results and are stacked
+# underneath, because a replicate with no extinct taxon drops out and their n is lower.
+#
+# The latent row covers extinct taxa only. Scoring b, d and tau1 together needs one
+# rank per taxon for each, and d is pinned at the present for an extant taxon rather
+# than estimated, so its rank would be meaningless. Extinction status is read off the
+# data, so restricting to it does not disturb the ranks of b or tau1.
+#
+# tau1 is internal to the distribution, so master.Rev exposes it as a deterministic node
+# (bd.getAugmentedFirstAges()) and mnModel logs it with the rates, on the same generation
+# grid as the matrix monitor. tau_K is logged too (tauK[...]) but is not plotted yet.
+#
+# usage:  Rscript bin/summarize.R sims/<batch>/runs/<name> ...
+#
+# Every path and hyperparameter comes from the run's manifest.tsv, so the scoring uses the
+# same values the fit used.
 
-suppressWarnings(suppressMessages(library(data.table)))
-suppressWarnings(suppressMessages(library(reshape2)))
-suppressWarnings(suppressMessages(library(ggplot2)))
+suppressMessages({
+  library(SBC)
+  library(posterior)
+  library(gtools)   # mixedsort is essential for matching output to true values
+  library(ggplot2)
+})
 
-args = commandArgs(trailingOnly=TRUE)
-dir = args[1]
+latent_order <- c("d", "tau1", "b")   # youngest to oldest
 
-burnin=2000
-
-substrRight <- function(x, n){
-  substr(x, nchar(x)-n+1, nchar(x))
+# Nothing here is inferred from a directory name. bin/run.sh writes manifest.tsv when it
+# runs the analysis, recording the batch, the reporting model and every hyperprior it fed
+# to rb, so the scoring reads the same values the fit used and cannot be pointed at the
+# wrong truth.
+manifest_for <- function(run) {
+  f <- file.path(run, "manifest.tsv")
+  if (!file.exists(f)) stop("no manifest in ", run, "; run bin/run.sh first")
+  m <- read.table(f, sep = "\t", header = FALSE, comment.char = "",
+                  col.names = c("key", "value"), colClasses = "character")
+  setNames(as.list(m$value), m$key)
 }
 
-baseLeft <- function(x, n){
-  substr(x, 1, nchar(x)-1)
+# a non-extended tree marginalizes the extinction times, so there is no d latent to score;
+# tau1 and b are still estimated and still worth checking
+is_nonextended <- function(mf) identical(mf$EXTENDED, "false")
+latent_order_for <- function(mf) if (is_nonextended(mf)) c("tau1", "b") else latent_order
+
+# the anagenetic batch draws one extra rate
+is_mixed <- function(mf) as.numeric(mf$LAMBDA_A) > 0
+
+rates_of <- function(mf) {
+  ni <- as.integer(mf$NINTERVALS)
+  r <- as.vector(t(outer(c("lambda", "mu", "psi"), seq_len(ni),
+                         function(a, b) paste0(a, "[", b, "]"))))
+  if (is_mixed(mf)) c(r, "lambda_a") else r
+}
+pair_re <- "\\[ *[-0-9.eE+]+, *[-0-9.eE+]+ *\\]"
+
+post_burnin <- function(n) (round(n * 0.25) + 1):n
+
+# RevBayes numbers skyline intervals in the opposite direction from the simulator,
+# and SBC matches draws to true values by column name, so reverse the true tuples.
+reverse_skyline_index <- function(df, ni) {
+  for (r in c("lambda", "mu", "psi")) {
+    cols <- paste0(r, "[", seq_len(ni), "]")
+    if (all(cols %in% colnames(df))) df[, cols] <- df[, rev(cols)]
+  }
+  df
 }
 
-mse = function(f) {
-	lm = read.table(paste(dirname(f),"/lambdamu.dat",sep=""),head=T)
-	truth = c(lm$lamda,lm$mu)
-        df = read.table(f,head=T)[-burnin,]
-	df = df[,c(grep("lambda",names(df)),grep("mu",names(df)))]
-	err = apply(df, FUN=function(x){ (x - truth)^2 },1)
-	mean( apply(err,FUN=mean,1) )
+results_obj <- function(draws) {
+  SBC_results(stats = data.frame(sim_id = seq_along(draws)), fits = draws,
+              backend_diagnostics = NULL,
+              default_diagnostics = data.frame(sim_id = seq_along(draws)),
+              outputs = NULL,
+              messages = vector("list", length(draws)),
+              warnings = vector("list", length(draws)),
+              errors = vector("list", length(draws)))
 }
 
-medians = function(f) {
-	df = read.table(f,head=T)[-burnin,]
-        df = df[,c(grep("lambda",names(df)),grep("mu",names(df)))]
-	apply(df,FUN=median,2)
+# thin_ranks = 1 keeps all ~750 retained draws (SBC's adaptive thinning wants more than
+# we have). Autocorrelation within a chain inflates both rank tails, so SBC_THIN_RANKS
+# is exposed to tell that artifact apart from a real miscalibration.
+thin_ranks_opt <- as.integer(Sys.getenv("SBC_THIN_RANKS", "1"))
+
+stats_for <- function(draws, true_vals) {
+  datasets <- SBC_datasets(true_vals, generated = vector("list", length(draws)))
+  recompute_SBC_statistics(results_obj(draws), datasets, backend = NULL,
+                           thin_ranks = thin_ranks_opt)
 }
 
-pyrate.files <- list.files(dir, pattern="pyrate.log", full.names=TRUE, recursive=TRUE)
-fbd.files <- paste(dirname(pyrate.files),"/fbd.log",sep="")
-bds.files <- paste(dirname(pyrate.files),"/bds.log",sep="")
-psi.files <- paste(dirname(pyrate.files),"/psi.dat",sep="")
+# the skyline rates, one value per replicate
+rate_stats <- function(mf, ids, logs) {
+  sim_dir <- mf$batch_dir
+  rates <- rates_of(mf)
 
-### Get psi
+  # the simulator records the origin as `age`; score it alongside the rates when it was logged
+  probe <- read.table(logs[[1]], header = TRUE, nrows = 1)
+  if ("org" %in% names(probe)) rates <- c(rates, "org")
 
-psi <- as.vector(sapply(psi.files, function(x){ read.table(x,header=F)$V1[1] }))
+  draws <- Map(function(f) {
+    d <- read.table(f, header = TRUE)
+    colnames(d) <- gsub("\\[$", "]", gsub("\\.", "[", colnames(d)))
+    posterior::as_draws_matrix(d[post_burnin(nrow(d)), rates])
+  }, logs)
 
-### Medians
+  true_vals <- read.table(file.path(sim_dir, "true_vals.tsv"), header = TRUE)
+  colnames(true_vals) <- gsub("(\\D+)(\\d+)$", "\\1[\\2]", colnames(true_vals))
+  names(true_vals)[names(true_vals) == "age"] <- "org"
+  true_vals <- reverse_skyline_index(true_vals, as.integer(mf$NINTERVALS))
+  stats_for(draws, posterior::as_draws_matrix(true_vals[ids, rates]))
+}
 
-#pdf(paste(dir,"_medians.pdf",sep=""))
+# b, d and tau1, one extinct taxon per replicate. Returns NULL if nothing usable was logged.
+latent_stats <- function(mf, ids) {
+  sim_dir <- mf$batch_dir
+  nonext <- is_nonextended(mf)
+  load(file.path(sim_dir, "sim_list.RData"))   # -> sims
+  draws <- list(); truth <- list()
 
-#pyrate.medians <- medians(paste(dir,"/pyrate.log",sep=""))
-#bds.medians <- medians(paste(dir,"/bds.log",sep=""))
+  set.seed(20260719)   # the per-replicate taxon draw, fixed so the figures reproduce
 
-#plot(pyrate.medians,bds.medians)
-#dev.off()
+  for (rep in ids) {
+    spec <- file.path(sim_dir, mf$specimens, sprintf("taxa_%d.tsv", rep))
+    rng <- file.path(sim_dir, "true_ranges", sprintf("ranges_%d.tsv", rep))
+    log <- file.path(mf$run_dir, "output", sprintf("skyfbdr_%d.log", rep))
+    if (!all(file.exists(spec, rng, log))) next
 
-### Error plot
+    # RevBayes orders taxa by character name, so t10 precedes t2
+    taxa <- sort(unique(as.character(read.table(spec, header = TRUE)$taxon)))
+    ranges <- read.table(rng, header = TRUE)
+    s <- sims[[rep]]
+    n_taxa <- length(taxa)
+    sim_idx <- as.integer(sub("t", "", taxa))   # simulator indices of the sampled taxa
 
-pdf("mse.pdf")
+    ll <- try(read.table(log, header = TRUE, sep = "\t", check.names = FALSE), silent = TRUE)
+    if (inherits(ll, "try-error")) next
+    tcols <- grep("^tau1\\[", names(ll))
+    if (length(tcols) != n_taxa || nrow(ll) < 50) next
+    n_draw <- nrow(ll)
+    keep <- post_burnin(n_draw)
 
-fbd.error <- as.vector(sapply(fbd.files, FUN=mse) )
-bds.error <- as.vector(sapply(bds.files, FUN=mse) )
-diff = bds.error - fbd.error
+    bcols <- grep("^bb\\[", names(ll))
+    dcols <- grep("^dd\\[", names(ll))
 
-plot(psi,diff,pch=18,xlab="Fossil Sampling Rate",ylab="Difference in MSE (BDS - FBDRP)")
+    if (length(bcols) == n_taxa && length(dcols) == n_taxa) {
+      # b and d are deterministic nodes in the mnModel log, so they work for a tree model too
+      b_mat <- as.matrix(ll[keep, bcols, drop = FALSE])
+      d_mat <- as.matrix(ll[keep, dcols, drop = FALSE])
+    } else if (nonext && length(bcols) == n_taxa) {
+      b_mat <- as.matrix(ll[keep, bcols, drop = FALSE])
+      d_mat <- NULL
+    } else {
+      next   # bin/infer.Rev always monitors bb/dd, so a log without them is malformed
+    }
 
-dev.off()
+    t_mat <- as.matrix(ll[keep, tcols, drop = FALSE])
+
+    # In a non-extended tree an I[i] taxon's b is pinned to its sampled ancestor's range end, with
+    # the speciation that separates them integrated out by the I-set term, so b is a structural
+    # node age there rather than an estimated birth. Detect it as b coinciding with some taxon's
+    # tau_K. This is a posterior summary, hence a function of the data, so the split is legitimate.
+    kcols <- grep("^tauK\\[", names(ll))
+    k_mat <- if (nonext && length(kcols) == n_taxa) as.matrix(ll[keep, kcols, drop = FALSE]) else NULL
+
+    cand_draws <- list(); cand_truth <- list()
+    for (j in seq_along(taxa)) {
+      k <- as.integer(sub("t", "", taxa[j]))
+      true_d <- if (is.na(s$TE[k])) 0 else s$TE[k]
+      if (true_d <= 0) next    # d is pinned at the present for extant taxa: not estimated
+
+      # any pinning at all makes b a mixture of a structural node age and an estimated birth,
+      # so score it only where the birth is explicit in every retained sample
+      if (!is.null(k_mat)) {
+        pinned <- mean(rowSums(abs(k_mat - b_mat[, j]) < 1e-6 * pmax(1, abs(b_mat[, j]))) > 0)
+        if (pinned > 0) next
+      }
+      first_age <- ranges$first_age[as.character(ranges$taxon) == taxa[j]]
+      if (length(first_age) != 1) next
+      cand_draws[[length(cand_draws) + 1]] <- posterior::as_draws_matrix(
+        if (nonext) cbind(b = b_mat[, j], tau1 = t_mat[, j])
+        else        cbind(b = b_mat[, j], d = d_mat[, j], tau1 = t_mat[, j]))
+      # b is where this lineage last branched off a SAMPLED one, not the taxon's own origination:
+      # the stem above o_i uses the unsampled propagator q, which permits any number of species
+      # changes between the branching and the first fossil. Walk up through unsampled ancestors.
+      cur <- k
+      par <- s$PAR[cur]
+      while (!is.na(par) && !(par %in% sim_idx)) { cur <- par; par <- s$PAR[cur] }
+      true_b <- s$TS[cur]
+
+      cand_truth[[length(cand_truth) + 1]] <-
+        if (nonext) c(b = true_b, tau1 = first_age)
+        else        c(b = true_b, d = true_d, tau1 = first_age)
+    }
+    if (!length(cand_draws)) next
+
+    # one taxon per replicate: taxa within a replicate share a history, so their ranks are
+    # not independent and pooling them narrows the band the ranks are judged against
+    j <- sample.int(length(cand_draws), 1)
+    draws[[length(draws) + 1]] <- cand_draws[[j]]
+    truth[[length(truth) + 1]] <- cand_truth[[j]]
+  }
+  if (!length(draws)) return(NULL)
+  cat("   latents: one extinct taxon from each of", length(draws), "replicates\n")
+  res <- stats_for(draws, posterior::as_draws_matrix(do.call(rbind, truth)))
+  # youngest to oldest, the order the range is read in (rank_summary splits on this;
+  # the plots take the same order through the variables= argument)
+  res$stats$variable <- factor(res$stats$variable, levels = latent_order_for(mf))
+  res
+}
+
+# SBC in one number per parameter: under calibration the rank of the true value among
+# the posterior draws is uniform, so mean(rank/max) is 0.5 and z is standard normal.
+#
+# z only sees a location shift. A symmetric departure -- the U-shape that autocorrelated
+# draws produce, where the rank piles up at both ends -- leaves the mean at 0.5 and is
+# invisible to z, so also test the ranks for uniformity outright.
+rank_summary <- function(res, what) {
+  s <- res$stats
+  d <- do.call(rbind, lapply(split(s, s$variable), function(x) {
+    r <- x$rank / x$max_rank
+    p <- suppressWarnings(chisq.test(table(cut(r, seq(0, 1, length.out = 21),
+                                               include.lowest = TRUE)))$p.value)
+    data.frame(variable = x$variable[1], n = nrow(x), mean_rank = mean(r),
+               z = (mean(r) - 0.5) / sqrt(1 / 12 / nrow(x)), unif_p = p)
+  }))
+  d$flag <- ifelse(d$unif_p < 0.01 | abs(d$z) > 3, "  <-- NOT uniform", "")
+  cat("  ", what, ": mean|rank-0.5| =", sprintf("%.4f", mean(abs(d$mean_rank - 0.5))), "\n")
+  for (i in seq_len(nrow(d)))
+    cat(sprintf("     %-10s rank %.4f  z %+6.2f  unif p %.3g%s\n",
+                d$variable[i], d$mean_rank[i], d$z[i], d$unif_p[i], d$flag[i]))
+  invisible(d)
+}
+
+# One 4x3 grid: the 9 rates then b, d, tau1, with a single legend under the whole thing.
+# The two halves stay separate plot objects because their n differs (one rank per
+# replicate for a rate, one per taxon for a latent) and so does their confidence band;
+# only the bottom half carries the legend and the axis strip, so they read as one grid.
+save_stacked <- function(path, top, bottom, height = 8) {
+  # png only: the svgs are large and nothing reads them
+  for (dev_name in c("png")) {
+    png(paste0(path, ".png"), width = 1100, height = height * 110)
+    grid::grid.newpage()
+    n_row <- if (is.null(bottom)) 1 else 2
+    heights <- if (is.null(bottom)) 1 else c(3, 1.5)
+    grid::pushViewport(grid::viewport(layout = grid::grid.layout(n_row, 1,
+                                       heights = grid::unit(heights, "null"))))
+    print(top, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 1))
+    if (!is.null(bottom)) print(bottom, vp = grid::viewport(layout.pos.row = 2, layout.pos.col = 1))
+    invisible(dev.off())
+  }
+}
+
+# SBC carries the panel name as a character, so the facets come out alphabetical
+order_facets <- function(p, lv) {
+  for (v in c("group", "variable")) {
+    if (!is.null(p$data) && v %in% names(p$data)) p$data[[v]] <- factor(p$data[[v]], levels = lv)
+  }
+  p
+}
+
+make_figures <- function(run) {
+  run <- sub("/$", "", run)
+  mf <- manifest_for(run)
+  mf$run_dir <- run
+  out <- file.path(run, "results")
+  dir.create(out, recursive = TRUE, showWarnings = FALSE)
+
+  # a finished log carries one header plus GENS/PRINTGEN + 1 samples
+  complete_lines <- as.integer(mf$GENS) / as.integer(mf$PRINTGEN) + 2L
+  logs <- mixedsort(list.files(file.path(run, "output"),
+                               pattern = "^skyfbdr_.*log$", full.names = TRUE))
+  logs <- logs[sapply(logs, function(f) length(readLines(f)) == complete_lines)]
+  # a chain stranded at -inf accepts everything and its rates diffuse, but its log is still
+  # full length, so length alone does not catch it
+  finite <- sapply(logs, function(f) all(is.finite(read.table(f, header = TRUE)$Posterior)))
+  if (any(!finite)) cat("  ", sum(!finite), "rep(s) dropped: non-finite posterior\n")
+  logs <- logs[finite]
+  if (!length(logs)) { cat(run, ": no complete logs, skipping\n"); return(invisible()) }
+  ids <- as.integer(gsub("[^0-9]", "", basename(logs)))
+
+  label <- sprintf("%s (batch %s, %s, infer=%s)", basename(run), mf$batch,
+                   mf$REPORTING, mf$INFER)
+  cat(label, ":", length(logs), "complete reps\n")
+
+  res <- rate_stats(mf, ids, logs)
+  lat <- latent_stats(mf, ids)
+  if (is.null(lat)) cat("   no tau1 traces: plotting the rates only\n")
+
+  rank_summary(res, "skyline rates")
+  if (!is.null(lat)) rank_summary(lat, "per-taxon latents")
+  saveRDS(list(rates = res, latents = lat, manifest = mf),
+          file.path(out, "sbc_results.rds"))
+
+  # the run names the whole grid; the legend rides on the bottom half only
+  upper <- function(p) p + labs(title = label) + theme(legend.position = "none")
+  lower <- function(p) order_facets(p, latent_order_for(mf)) + theme(legend.position = "bottom")
+  stack <- function(name, plot_fn) save_stacked(file.path(out, name),
+             upper(plot_fn(res)), if (!is.null(lat)) lower(plot_fn(lat)))
+  stack("output_ecdf_diff", plot_ecdf_diff)
+  cat("   figure ->", file.path(out, "output_ecdf_diff.png"), "\n")
+}
+
+runs <- commandArgs(TRUE)
+if (!length(runs)) stop("usage: Rscript bin/summarize.R sims/<batch>/runs/<name> ...")
+for (r in runs) make_figures(r)

@@ -1,0 +1,184 @@
+#!/bin/bash
+# Run one batch or one analysis.
+#
+#   bash bin/run.sh sims/<batch>                  # simulate the batch only
+#   bash bin/run.sh sims/<batch>/runs/<name>      # simulate if needed, then infer
+#
+# A batch owns the generating process and every hyperprior. One simulation pass emits
+# all reporting models from one record, so the analyses under it share a timeline and
+# one true_vals.tsv and their comparisons are paired.
+#
+# An analysis under runs/ chooses only what to read and how to fit it. It inherits the
+# batch's hyperpriors and may not redeclare them, and bin/run.sh feeds the same values
+# to bin/sim.R and to bin/infer.Rev, so the generating and fitting priors cannot drift.
+#
+# Both levels write a manifest.tsv recording the resolved parameters, the config hash,
+# the script hashes and the rb identity, and a run records the batch hash it ran against.
+# A config edited after its data or output exists is refused rather than mixed; FORCE=1
+# overrides.
+set -u
+
+TARGET="${1:?usage: run.sh sims/<batch>[/runs/<name>]}"; TARGET="${TARGET%/}"
+BIN="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$BIN/.." && pwd)"
+cd "$ROOT" || exit 1
+source "$BIN/env.sh"
+
+# the hyperpriors a batch owns; an analysis that sets one of these is an error
+PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
+
+hash_of() { sha1sum "$1" | cut -c1-12; }
+
+die() { echo "error: $*" >&2; exit 1; }
+
+# resolve batch vs analysis from the path shape
+case "$TARGET" in
+  */runs/*) RUNDIR="$TARGET"; BATCHDIR="${TARGET%%/runs/*}" ;;
+  *)        RUNDIR=""; BATCHDIR="$TARGET" ;;
+esac
+[ -f "$BATCHDIR/config.sh" ] || die "no $BATCHDIR/config.sh"
+
+# ---- batch config: the single definition of the generating process ----
+set -a; source "$BATCHDIR/config.sh"; set +a
+for k in $PRIOR_KEYS; do
+  [ -n "${!k:-}" ] || die "$BATCHDIR/config.sh does not set $k"
+done
+BATCH_CFG_HASH="$(hash_of "$BATCHDIR/config.sh")"
+export BATCHDIR
+
+# ---- simulate the batch, unless its data already matches this config ----
+BATCH_MANIFEST="$BATCHDIR/manifest.tsv"
+have_batch=false
+if [ -f "$BATCH_MANIFEST" ]; then
+  prev="$(awk -F'\t' '$1=="config_hash"{print $2}' "$BATCH_MANIFEST")"
+  if [ "$prev" = "$BATCH_CFG_HASH" ]; then
+    have_batch=true
+  elif [ "${FORCE:-0}" != "1" ]; then
+    die "$BATCHDIR/config.sh changed since its data was generated ($prev -> $BATCH_CFG_HASH).
+       Re-simulating would mix parameters across replicates. Delete the data or set FORCE=1."
+  fi
+fi
+
+if [ "$have_batch" = false ]; then
+  echo "simulating $BATCHDIR: ${NREPS} reps, ${NINTERVALS} intervals of width ${INTERVAL_WIDTH}"
+  "$RSCRIPT" "$BIN/sim.R" || die "simulation failed"
+  {
+    printf 'kind\tbatch\n'
+    printf 'batch\t%s\n' "$(basename "$BATCHDIR")"
+    printf 'config_hash\t%s\n' "$BATCH_CFG_HASH"
+    printf 'sim_script_hash\t%s\n' "$(hash_of "$BIN/sim.R")"
+    printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
+    printf 'created\t%s\n' "$(date -Is)"
+    for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
+  } > "$BATCH_MANIFEST"
+
+  # the simulator reports what it actually drew with; disagreement means a key did not reach it
+  if [ -f "$BATCHDIR/sim_params.tsv" ]; then
+    while IFS=$'\t' read -r k v; do
+      want="${!k:-}"
+      [ "$(awk -v a="$v" 'BEGIN{print a+0}')" = "$(awk -v a="$want" 'BEGIN{print a+0}')" ] \
+        || die "simulator used $k=$v but config.sh says $want"
+    done < "$BATCHDIR/sim_params.tsv"
+  fi
+  echo "  -> $BATCH_MANIFEST"
+fi
+
+[ -n "$RUNDIR" ] || { echo "batch ready: $BATCHDIR"; exit 0; }
+
+# ---- analysis config: what to read and how to fit it ----
+[ -f "$RUNDIR/config.sh" ] || die "no $RUNDIR/config.sh"
+for k in $PRIOR_KEYS; do
+  grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
+    && die "$RUNDIR/config.sh sets $k, which the batch owns. Remove it, or make a new batch."
+done
+set -a; source "$RUNDIR/config.sh"; set +a
+for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
+  [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
+done
+[ "$MODEL" = fbdr ] || die "MODEL=$MODEL is not wired yet; only fbdr runs under this pipeline"
+case "$INFER" in
+  complete)   COMPLETE=true ;;
+  incomplete) COMPLETE=false ;;
+  *) die "INFER must be complete|incomplete" ;;
+esac
+SPECIMENS="specimens_$REPORTING"
+[ -d "$BATCHDIR/$SPECIMENS" ] || die "batch has no $SPECIMENS (reporting model $REPORTING)"
+[ "$NINTERVALS" -gt 1 ] && SKY=true || SKY=false
+
+RUN_CFG_HASH="$(hash_of "$RUNDIR/config.sh")"
+RUN_MANIFEST="$RUNDIR/manifest.tsv"
+if [ -f "$RUN_MANIFEST" ] && [ "${FORCE:-0}" != "1" ]; then
+  pb="$(awk -F'\t' '$1=="batch_config_hash"{print $2}' "$RUN_MANIFEST")"
+  pr="$(awk -F'\t' '$1=="config_hash"{print $2}' "$RUN_MANIFEST")"
+  [ "$pb" = "$BATCH_CFG_HASH" ] || die "$RUNDIR ran against batch config $pb, now $BATCH_CFG_HASH. Its output would mix. Delete output/ or set FORCE=1."
+  [ "$pr" = "$RUN_CFG_HASH" ]   || die "$RUNDIR/config.sh changed since its output was written ($pr -> $RUN_CFG_HASH). Delete output/ or set FORCE=1."
+fi
+
+OUTDIR="$RUNDIR/output"; AUXDIR="$RUNDIR/aux"
+mkdir -p "$OUTDIR" "$AUXDIR" "$RUNDIR/results"
+echo "$(basename "$RUNDIR"): batch=$(basename "$BATCHDIR") reporting=$REPORTING infer=$INFER(complete=$COMPLETE) cond=$COND rho=$RHO reps=$NREPS"
+
+# a finished rep's log has this many lines; reruns fill gaps rather than redo work
+COMPLETE_LINES=$(( GENS / PRINTGEN + 2 ))
+: > "$RUNDIR/failures.log"
+
+run_one() {
+  local rep="$1"
+  local log="$OUTDIR/skyfbdr_$rep.log"
+  if [ -f "$log" ] && [ "$(wc -l < "$log")" = "$COMPLETE_LINES" ]; then return 0; fi
+  # one self-contained file per rep: the config as Rev variables, then the shared template
+  cat > "$AUXDIR/run_$rep.Rev" <<EOF
+rep <- "$rep"
+SKYLINE <- $SKY
+COMPLETE <- $COMPLETE
+COND <- "$COND"
+RHO <- $RHO
+GENS <- $GENS
+PRINTGEN <- $PRINTGEN
+BATCHDIR <- "$BATCHDIR"
+SPECIMENS <- "$SPECIMENS"
+OUTDIR <- "$OUTDIR"
+LMEAN <- $LMEAN
+LSD <- $LSD
+MMEAN <- $MMEAN
+MSD <- $MSD
+PMEAN <- $PMEAN
+PSD <- $PSD
+AGE_MIN <- $AGE_MIN
+AGE_MAX <- $AGE_MAX
+source("$BIN/infer.Rev")
+EOF
+  "$RBIN" "$AUXDIR/run_$rep.Rev" < /dev/null > "$AUXDIR/rb_$rep.out" 2>&1
+  if [ ! -f "$log" ] || [ "$(wc -l < "$log")" != "$COMPLETE_LINES" ]; then
+    echo "$rep :: $(grep -m1 -i error "$AUXDIR/rb_$rep.out" || echo 'no log written')" >> "$RUNDIR/failures.log"
+  fi
+  return 0
+}
+export -f run_one
+export RBIN BIN BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
+       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX
+
+seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
+
+{
+  printf 'kind\trun\n'
+  printf 'run\t%s\n' "$(basename "$RUNDIR")"
+  printf 'batch\t%s\n' "$(basename "$BATCHDIR")"
+  printf 'batch_dir\t%s\n' "$BATCHDIR"
+  printf 'batch_config_hash\t%s\n' "$BATCH_CFG_HASH"
+  printf 'config_hash\t%s\n' "$RUN_CFG_HASH"
+  printf 'infer_script_hash\t%s\n' "$(hash_of "$BIN/infer.Rev")"
+  printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
+  printf 'rb_path\t%s\n' "$(command -v "$RBIN" || echo "$RBIN")"
+  printf 'rb_md5\t%s\n' "$(md5sum "$(command -v "$RBIN" || echo "$RBIN")" 2>/dev/null | cut -c1-12 || echo unknown)"
+  printf 'created\t%s\n' "$(date -Is)"
+  printf 'specimens\t%s\n' "$SPECIMENS"
+  for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN; do printf '%s\t%s\n' "$k" "${!k}"; done
+  # the inherited hyperpriors, so a run manifest describes its own fit without the batch
+  for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
+} > "$RUN_MANIFEST"
+
+nfail=$(wc -l < "$RUNDIR/failures.log")
+echo "logs: $(ls "$OUTDIR"/skyfbdr_*.log 2>/dev/null | wc -l)/$NREPS, $nfail failed"
+echo "manifest: $RUN_MANIFEST"
+echo "now run: $RSCRIPT bin/summarize.R $RUNDIR"

@@ -1,0 +1,71 @@
+### Skyline FBD-range inference over dnFBDRMatrix.
+###
+### Every prior hyperparameter arrives as a variable set by the per-rep aux file that
+### bin/run.sh generates from the batch config.sh. Nothing is hardcoded here: the batch
+### that generated the data and the analysis that fits it read one definition, so they
+### cannot drift apart.
+###
+### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
+###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX
+
+taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
+
+moves = VectorMoves()
+
+if (SKYLINE) {
+    timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
+    n_int <- timeline.size() + 1
+    for (i in 1:n_int) {
+        lambda[i] ~ dnLognormal(LMEAN, LSD)
+        moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
+        mu[i] ~ dnLognormal(MMEAN, MSD)
+        moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
+        psi[i] ~ dnLognormal(PMEAN, PSD)
+        moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
+    }
+} else {
+    lambda ~ dnLognormal(LMEAN, LSD)
+    mu ~ dnLognormal(MMEAN, MSD)
+    psi ~ dnLognormal(PMEAN, PSD)
+    moves.append( mvScale(lambda, weight=3) )
+    moves.append( mvScale(mu, weight=3) )
+    moves.append( mvScale(psi, weight=3) )
+}
+
+# the origin prior is the simulator's age draw, U(AGE_MIN, AGE_MAX), not a separate choice
+if (SKYLINE) {
+    bd ~ dnFBDRMatrix(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
+                      timeline=timeline, condition=COND, complete=COMPLETE,
+                      origin_prior=dnUniform(AGE_MIN, AGE_MAX))
+} else {
+    bd ~ dnFBDRMatrix(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
+                      condition=COND, complete=COMPLETE,
+                      origin_prior=dnUniform(AGE_MIN, AGE_MAX))
+}
+
+moves.append( mvMatrixElementScale(bd, lambda=0.01, weight=taxa.size()/10) )
+moves.append( mvMatrixElementScale(bd, lambda=0.1,  weight=taxa.size()/10) )
+moves.append( mvMatrixElementScale(bd, lambda=1,    weight=taxa.size()/10) )
+moves.append( mvMatrixElementSlide(bd, delta=0.01, weight=taxa.size()/10) )
+moves.append( mvMatrixElementSlide(bd, delta=0.1,  weight=taxa.size()/10) )
+moves.append( mvMatrixElementSlide(bd, delta=1,    weight=taxa.size()/10) )
+
+# lets the oldest birth change lineage, which a random walk mixes over poorly
+moves.append( mvMatrixElementSwap(bd, col=4, weight=taxa.size()/5) )
+
+org  := bd.getOrigin()
+bb   := bd.getBirthAges()
+dd   := bd.getDeathAges()
+tau1 := bd.getAugmentedFirstAges()
+tauK := bd.getAugmentedLastAges()
+# the augmented ages are entries of an ordered vector; the move keeps them ordered
+moves.append( mvOrderedElementSlide(bd, weight = 2 * taxa.size()) )
+moves.append( mvMatrixElementSlide(bd, delta = 1.0, col = 3, weight = taxa.size()/2) )
+
+mymodel = model(bd)
+monitors = VectorMonitors()
+monitors.append( mnModel(filename=OUTDIR + "/skyfbdr_" + rep + ".log", printgen=PRINTGEN) )
+monitors.append( mnScreen(printgen=100000) )
+mymcmc = mcmc(mymodel, monitors, moves, moveschedule="single")
+mymcmc.run(generations=GENS)
+q()
