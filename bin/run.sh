@@ -26,6 +26,8 @@ source "$BIN/env.sh"
 
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
+# owned by the batch too, but optional, so configs written before it keep working
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -70,6 +72,7 @@ if [ "$have_batch" = false ]; then
     printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
     printf 'created\t%s\n' "$(date -Is)"
     for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
+    for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
   } > "$BATCH_MANIFEST"
 
   # the simulator reports what it actually drew with; disagreement means a key did not reach it
@@ -87,11 +90,12 @@ fi
 
 # ---- analysis config: what to read and how to fit it ----
 [ -f "$RUNDIR/config.sh" ] || die "no $RUNDIR/config.sh"
-for k in $PRIOR_KEYS; do
+for k in $PRIOR_KEYS $OPT_KEYS; do
   grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
     && die "$RUNDIR/config.sh sets $k, which the batch owns. Remove it, or make a new batch."
 done
 set -a; source "$RUNDIR/config.sh"; set +a
+ORIGIN_PRIOR="${ORIGIN_PRIOR:-uniform}"
 for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
   [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
 done
@@ -131,8 +135,16 @@ run_one() {
   local log="$OUTDIR/skyfbdr_$rep.log"
   if [ -f "$log" ] && [ "$(wc -l < "$log")" = "$COMPLETE_LINES" ]; then return 0; fi
   # one self-contained file per rep: the config as Rev variables, then the shared template
+  # the oldest bin floor across taxa: PyRate's max FA, and the tightest lower bound the
+  # data puts on the origin. Only used when ORIGIN_PRIOR=exponential.
+  local maxfa
+  maxfa=$(awk -F'\t' 'NR>1 { if ($2+0 > m[$1]) m[$1]=$2+0 }
+                       END { x=0; for (t in m) if (m[t]>x) x=m[t]; printf "%.6f", (x>0 ? x : 1) }' \
+          "$BATCHDIR/$SPECIMENS/taxa_${rep}.tsv")
   cat > "$AUXDIR/run_$rep.Rev" <<EOF
 rep <- "$rep"
+ORIGIN_PRIOR <- "$ORIGIN_PRIOR"
+MAXFA <- $maxfa
 SKYLINE <- $SKY
 COMPLETE <- $COMPLETE
 COND <- "$COND"
@@ -159,6 +171,7 @@ EOF
   return 0
 }
 export -f run_one
+export ORIGIN_PRIOR
 export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
        COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX
 
@@ -171,15 +184,16 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'batch_dir\t%s\n' "$BATCHDIR"
   printf 'batch_config_hash\t%s\n' "$BATCH_CFG_HASH"
   printf 'config_hash\t%s\n' "$RUN_CFG_HASH"
-  printf 'infer_script_hash\t%s\n' "$(hash_of "$BIN/infer.Rev")"
+  printf 'infer_script_hash\t%s\n' "$(hash_of "$TEMPLATE")"
   printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
   printf 'rb_path\t%s\n' "$(command -v "$RBIN" || echo "$RBIN")"
   printf 'rb_md5\t%s\n' "$(md5sum "$(command -v "$RBIN" || echo "$RBIN")" 2>/dev/null | cut -c1-12 || echo unknown)"
   printf 'created\t%s\n' "$(date -Is)"
   printf 'specimens\t%s\n' "$SPECIMENS"
-  for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN; do printf '%s\t%s\n' "$k" "${!k}"; done
+  for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN ORIGIN_PRIOR; do printf '%s\t%s\n' "$k" "${!k}"; done
   # the inherited hyperpriors, so a run manifest describes its own fit without the batch
   for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
+  for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
 } > "$RUN_MANIFEST"
 
 nfail=$(wc -l < "$RUNDIR/failures.log")

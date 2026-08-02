@@ -6,7 +6,8 @@
 ### cannot drift apart.
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
-###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX
+###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
+###   ORIGIN_PRIOR, MAXFA
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
@@ -32,14 +33,22 @@ if (SKYLINE) {
     moves.append( mvScale(psi, weight=3) )
 }
 
-# the origin prior is the simulator's age draw, U(AGE_MIN, AGE_MAX), not a separate choice
+# uniform is the simulator's own age draw, U(AGE_MIN, AGE_MAX). exponential is PyRate's:
+# rate and lower truncation both the oldest observed first appearance, no upper bound.
+# Truncating an exponential below at m and shifting it to m are the same thing, so the
+# offset argument gives PyRate's prior exactly.
+if (ORIGIN_PRIOR == "exponential") {
+    org_prior = dnExponential(1/MAXFA, offset=MAXFA)
+} else {
+    org_prior = dnUniform(AGE_MIN, AGE_MAX)
+}
+
 if (SKYLINE) {
     bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
-                 timeline=timeline, condition=COND,
-                 origin_prior=dnUniform(AGE_MIN, AGE_MAX))
+                 timeline=timeline, condition=COND, origin_prior=org_prior)
 } else {
     bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
-                 condition=COND, origin_prior=dnUniform(AGE_MIN, AGE_MAX))
+                 condition=COND, origin_prior=org_prior)
 }
 
 # the reporting model is its own node now, clamped to the observed record
@@ -61,9 +70,6 @@ bb   := bd.getOriginationTimes()
 dd   := bd.getExtinctionTimes()
 tau1 := bd.getFirstAppearances()
 tauK := bd.getLastAppearances()
-# the appearances are columns 2 and 3 of the value, which the element moves above sample;
-# this one gives the oldest its own proposal
-moves.append( mvMatrixElementSlide(bd, delta = 1.0, col = 3, weight = taxa.size()/2) )
 
 mymodel = model(bd)
 monitors = VectorMonitors()

@@ -108,6 +108,12 @@ cfg <- function(k) {
   as.numeric(v)
 }
 
+# a key a batch may leave unset, so older configs keep working
+cfg_opt <- function(k, default) {
+  v <- Sys.getenv(k)
+  if (v == "") default else as.numeric(v)
+}
+
 NINTERVALS    <- as.integer(cfg("NINTERVALS"))
 INTERVAL_WIDTH <- cfg("INTERVAL_WIDTH")
 LMEAN <- cfg("LMEAN"); LSD <- cfg("LSD")
@@ -115,6 +121,12 @@ MMEAN <- cfg("MMEAN"); MSD <- cfg("MSD")
 PMEAN <- cfg("PMEAN"); PSD <- cfg("PSD")
 AGE_MIN <- cfg("AGE_MIN"); AGE_MAX <- cfg("AGE_MAX")
 BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
+
+# Ceiling on lineages ever born. Unset means no ceiling, which is right when the origin
+# is shallow. Deeper origins need one: the oldest interval absorbs the extra depth, so
+# diversity is exponential in it and a draw in the upper tail of lambda never terminates.
+MAX_LINEAGES <- cfg_opt("MAX_LINEAGES", Inf)
+SIM_TIMEOUT <- cfg_opt("SIM_TIMEOUT", Inf)   # seconds one bd.sim call may take
 
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
 # derived from age: the analysis estimates the origin, so anything it reads that
@@ -131,6 +143,43 @@ draw_theta <- function(lambda_a) {
        mu     = rlnorm(NINTERVALS, MMEAN, MSD),
        psi    = rlnorm(NINTERVALS, PMEAN, PSD),
        lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a)
+}
+
+# Expected lineages ever born, 1 + integral of lambda(t)E[N(t)]: E[N] grows as exp(lambda-mu)
+# within an interval, so both integrals are closed form. Screening on this before bd.sim is
+# what keeps a runaway draw from hanging, and it is a function of theta alone, so a redraw
+# leaves the accepted set a truncation of the prior rather than a conditioning on the data.
+expected_lineages <- function(lambda, mu, age, shifts) {
+  edges <- c(shifts, age)
+  total <- 1
+  n <- 1
+  for (j in seq_along(lambda)) {
+    dt <- edges[j + 1] - edges[j]
+    r <- lambda[j] - mu[j]
+    total <- total + lambda[j] * n * (if (abs(r) < 1e-12) dt else expm1(r * dt) / r)
+    n <- n * exp(r * dt)
+    if (!is.finite(total)) return(Inf)
+  }
+  total
+}
+
+# Expected size screens out the astronomical draws, but with rate shifts paleobuddy takes
+# its general path, whose cost is not a function of tree size alone, so a rare draw still
+# runs for minutes. NULL means it outran the clock and the caller should redraw. Which
+# draws hit this depends on machine load, so a batch reproduces from its seeds only up to
+# the replicates that time out; sim_timeouts reports how many that was.
+sim_timeouts <- 0
+bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
+  call_it <- function() bd.sim(n0, lambda, mu, tMax, lShifts = lShifts,
+                               mShifts = mShifts, nFinal = c(nFinal, Inf))
+  if (!is.finite(SIM_TIMEOUT)) return(call_it())
+  setTimeLimit(elapsed = SIM_TIMEOUT, transient = TRUE)
+  on.exit(setTimeLimit(elapsed = Inf))
+  tryCatch(call_it(), error = function(e) {
+    if (!grepl("elapsed time limit", conditionMessage(e))) stop(e)
+    sim_timeouts <<- sim_timeouts + 1
+    NULL
+  })
 }
 
 # Reporting models, by the sim's model number. An SBC rep emits both from one
@@ -256,12 +305,32 @@ simulate_rep <- function(rates, age, shifts,
   
   # create conditions boolean
   cond <- FALSE
-  
+
+  # every rejection path redraws theta jointly, so none of them can diverge
+  redraw <- function() {
+    th <- draw_theta(lambda_a)
+    age <<- th$age; tMax <<- th$age
+    lambda <<- th$lambda; mu <<- th$mu; psi <<- th$psi; lambda_a <<- th$lambda_a
+    lShifts <<- mShifts <<- pShifts <<- c(0, th$age - rev(cov_breaks))
+    bins <<- cov_bins
+  }
+
   # run until we fulfill conditions
   while (!cond) {
+    # a draw whose expected tree exceeds the ceiling is refused before it is simulated
+    if (sbc && is.finite(MAX_LINEAGES)) {
+      while (expected_lineages(lambda, mu, tMax, lShifts) > MAX_LINEAGES) redraw()
+    }
+
     # run BD simulation - make sure we get 10+ species
-    sim <- bd.sim(n0, lambda, mu, tMax, 
-                  lShifts = lShifts, mShifts = mShifts, nFinal = c(nFinal, Inf))
+    sim <- bd_sim_bounded(n0, lambda, mu, tMax, lShifts, mShifts, nFinal)
+
+    # a draw that overshot its expectation, or outran the clock, is refused before it costs
+    # a fossil sampling pass
+    if (sbc && (is.null(sim) || length(sim$TS) > MAX_LINEAGES)) {
+      redraw()
+      next
+    }
 
     # run fossil sampling
     fossils <- suppressMessages(sample.clade(sim, psi, tMax,
@@ -345,20 +414,9 @@ simulate_rep <- function(rates, age, shifts,
       cond <- length(unique(specimens$taxon)) >= 1 &&
               ( origin_sampled == FALSE ||
                 "t1" %in% specimens$taxon || isTRUE(sim$EXTANT[1]) )
-      
-      # if cond is false, redraw everything
-      if (!cond) {
-        th <- draw_theta(lambda_a)
-        age <- th$age
-        tMax <- age
-        lambda <- th$lambda; mu <- th$mu; psi <- th$psi; lambda_a <- th$lambda_a
 
-        # shifts
-        lShifts <- mShifts <- pShifts <- c(0, age - rev(cov_breaks))
-        
-        # bins
-        bins <- cov_bins
-      }
+      # if cond is false, redraw everything
+      if (!cond) redraw()
     }
     else {
       cond <- length(unique(specimens$taxon)) > 10 &&
@@ -628,11 +686,17 @@ if (!exists("sim_functions_only")) {
               row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
 
   # what the draws actually used, for the manifest to check against config.sh
-  writeLines(sprintf("%s\t%s",
-    c("NINTERVALS","INTERVAL_WIDTH","LMEAN","LSD","MMEAN","MSD","PMEAN","PSD",
-      "AGE_MIN","AGE_MAX","BIN_WIDTH","BIN_MAX","NREPS","LAMBDA_A"),
-    c(NINTERVALS, INTERVAL_WIDTH, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD,
-      AGE_MIN, AGE_MAX, BIN_WIDTH, BIN_MAX, reps, lambda_a)),
-    paste0(reps_dir, "sim_params.tsv"))
+  keys <- c("NINTERVALS","INTERVAL_WIDTH","LMEAN","LSD","MMEAN","MSD","PMEAN","PSD",
+            "AGE_MIN","AGE_MAX","BIN_WIDTH","BIN_MAX","NREPS","LAMBDA_A")
+  vals <- c(NINTERVALS, INTERVAL_WIDTH, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD,
+            AGE_MIN, AGE_MAX, BIN_WIDTH, BIN_MAX, reps, lambda_a)
+  if (is.finite(MAX_LINEAGES)) {
+    keys <- c(keys, "MAX_LINEAGES"); vals <- c(vals, MAX_LINEAGES)
+  }
+  if (is.finite(SIM_TIMEOUT)) {
+    keys <- c(keys, "SIM_TIMEOUT"); vals <- c(vals, SIM_TIMEOUT)
+    cat("draws refused for outrunning the clock:", sim_timeouts, "\n")
+  }
+  writeLines(sprintf("%s\t%s", keys, vals), paste0(reps_dir, "sim_params.tsv"))
   cat("done\n")
 }

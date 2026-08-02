@@ -44,7 +44,6 @@ moves.append( mvMatrixElementScale(bd, lambda=1,    weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=0.01, weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=0.1,  weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=1,    weight=taxa.size()/10) )
-moves.append( mvMatrixElementSlide(bd, delta=1.0, col=3, weight=taxa.size()/2) )
 
 bb   := bd.getOriginationTimes()
 dd   := bd.getExtinctionTimes()

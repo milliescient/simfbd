@@ -18,6 +18,7 @@ bin/                 shared scripts; one of each, no per-analysis copies
   infer.Rev          rb inference; every prior arrives as a variable, none hardcoded
   run.sh             driver: bash bin/run.sh sims/<batch>[/runs/<name>]
   summarize.R        SBC scoring and figures, driven by the run's manifest
+  bias.R             dnBDS against dnFBDRP on identical data, by sampled fraction
   env.sh             toolchain paths; monitor.sh, kill.sh generic helpers
 sims/batch1/
   config.sh          the generating process and every hyperprior
@@ -41,6 +42,13 @@ Rscript bin/summarize.R sims/batch1/runs/fbdrp_firstlast
 
 `sims/smoke/` is the same thing at 6 replicates and short chains, for checking the
 pipeline end to end in about a minute.
+
+`sims/age20`, `sims/age26` and `sims/age32` are `sims/pilot` with the origin prior moved
+deeper and nothing else changed, so pooling all four gives a range of tree sizes. They
+also set `MAX_LINEAGES`, a ceiling on lineages ever born: a deep origin leaves the oldest
+interval unbounded, so a draw in the upper tail of lambda never finishes simulating.
+The ceiling is applied by refusing the draw before it is simulated and redrawing theta,
+which truncates the prior rather than conditioning on the record.
 
 ## The two key axes
 
