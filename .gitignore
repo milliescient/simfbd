@@ -1,17 +1,7 @@
-# Generated data and MCMC output regenerate from config.sh + bin/ + the rb recorded in
-# each manifest, and run to hundreds of MB. The config and the manifest are the record,
-# so those are tracked.
-sims/**/specimens_*/
-sims/**/times/
-sims/**/true_ranges/
-sims/**/*.RData
-sims/**/true_vals.tsv
-sims/**/nums.tsv
-sims/**/sim_params.tsv
-sims/**/output/
-sims/**/aux/
-sims/**/failures.log
-sims/**/results/
+# Everything under sims/ is a generable artifact: the batches, the run configs and
+# every log regenerate from bin/ plus the config that produced them. Only the repo
+# structure and the scripts are tracked for now.
+sims/
 
 *.DS_Store
 paleobuddy_install.log

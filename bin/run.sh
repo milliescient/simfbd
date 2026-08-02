@@ -95,7 +95,11 @@ set -a; source "$RUNDIR/config.sh"; set +a
 for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
   [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
 done
-[ "$MODEL" = fbdr ] || die "MODEL=$MODEL is not wired yet; only fbdr runs under this pipeline"
+case "$MODEL" in
+  fbdr) TEMPLATE="$BIN/infer.Rev" ;;       # dnFBDRP: accounts for unsampled lineages
+  bds)  TEMPLATE="$BIN/infer-bds.Rev" ;;   # dnBDS: complete lineage sampling, PyRate's assumption
+  *)    die "MODEL=$MODEL is not wired; use fbdr or bds" ;;
+esac
 case "$INFER" in
   complete)   COMPLETE=true ;;
   incomplete) COMPLETE=false ;;
@@ -146,7 +150,7 @@ PMEAN <- $PMEAN
 PSD <- $PSD
 AGE_MIN <- $AGE_MIN
 AGE_MAX <- $AGE_MAX
-source("$BIN/infer.Rev")
+source("$TEMPLATE")
 EOF
   "$RBIN" "$AUXDIR/run_$rep.Rev" < /dev/null > "$AUXDIR/rb_$rep.out" 2>&1
   if [ ! -f "$log" ] || [ "$(wc -l < "$log")" != "$COMPLETE_LINES" ]; then
@@ -155,7 +159,7 @@ EOF
   return 0
 }
 export -f run_one
-export RBIN BIN BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
+export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
        COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX
 
 seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}

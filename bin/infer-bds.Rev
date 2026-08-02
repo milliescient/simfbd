@@ -1,12 +1,11 @@
-### Skyline FBD-range inference over dnFBDRP, with the record on a dnFossilRecord node.
+### Skyline birth-death-sampling inference over dnBDS, with the record on a dnFossilRecord node.
 ###
-### Every prior hyperparameter arrives as a variable set by the per-rep aux file that
-### bin/run.sh generates from the batch config.sh. Nothing is hardcoded here: the batch
-### that generated the data and the analysis that fits it read one definition, so they
-### cannot drift apart.
+### The counterpart to bin/infer.Rev: same data, same priors, same reporting split, but a
+### process that assumes complete lineage sampling. There is no p(), no survival term and
+### no attachment count, so the comparison against dnFBDRP isolates exactly that assumption.
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
-###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX
+###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
@@ -23,6 +22,8 @@ if (SKYLINE) {
         psi[i] ~ dnLognormal(PMEAN, PSD)
         moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
     }
+    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
+               timeline=timeline, condition=COND)
 } else {
     lambda ~ dnLognormal(LMEAN, LSD)
     mu ~ dnLognormal(MMEAN, MSD)
@@ -30,19 +31,10 @@ if (SKYLINE) {
     moves.append( mvScale(lambda, weight=3) )
     moves.append( mvScale(mu, weight=3) )
     moves.append( mvScale(psi, weight=3) )
+    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, condition=COND)
 }
 
-# the origin prior is the simulator's age draw, U(AGE_MIN, AGE_MAX), not a separate choice
-if (SKYLINE) {
-    bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
-                 timeline=timeline, condition=COND,
-                 origin_prior=dnUniform(AGE_MIN, AGE_MAX))
-} else {
-    bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
-                 condition=COND, origin_prior=dnUniform(AGE_MIN, AGE_MAX))
-}
-
-# the reporting model is its own node now, clamped to the observed record
+# the reporting term is its own node, as for dnFBDRP
 rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
 rec.clamp(taxa)
 
@@ -52,18 +44,12 @@ moves.append( mvMatrixElementScale(bd, lambda=1,    weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=0.01, weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=0.1,  weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=1,    weight=taxa.size()/10) )
+moves.append( mvMatrixElementSlide(bd, delta=1.0, col=3, weight=taxa.size()/2) )
 
-# lets the oldest birth change lineage, which a random walk mixes over poorly
-moves.append( mvMatrixElementSwap(bd, col=4, weight=taxa.size()/5) )
-
-org  := bd.getOrigin()
 bb   := bd.getOriginationTimes()
 dd   := bd.getExtinctionTimes()
 tau1 := bd.getFirstAppearances()
 tauK := bd.getLastAppearances()
-# the appearances are columns 2 and 3 of the value, which the element moves above sample;
-# this one gives the oldest its own proposal
-moves.append( mvMatrixElementSlide(bd, delta = 1.0, col = 3, weight = taxa.size()/2) )
 
 mymodel = model(bd)
 monitors = VectorMonitors()

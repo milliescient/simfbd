@@ -22,7 +22,7 @@ bin/                 shared scripts; one of each, no per-analysis copies
 sims/batch1/
   config.sh          the generating process and every hyperprior
   manifest.tsv       what was actually used, written by bin/run.sh
-  specimens_complete/  specimens_firstlast/  specimens_truncated/
+  specimens_complete/  specimens_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
     config.sh        which reporting model to read, and how to fit it
@@ -44,7 +44,7 @@ pipeline end to end in about a minute.
 
 ## The two key axes
 
-- **REPORTING** = `complete` | `firstlast` | `truncated` — which record the analysis
+- **REPORTING** = `complete` | `firstlast` — which record the analysis
   reads. All three come from the same simulated history.
 - **INFER** = `complete` | `incomplete` — how `dnFBDRMatrix` treats it
   (`complete=true` / `false`).

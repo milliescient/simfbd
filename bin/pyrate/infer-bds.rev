@@ -7,7 +7,11 @@ source("../../prior.rev")
 rho <- 1
 
 ### Define the tree-prior distribution as the fossilized birth-death process ###
-bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=rho, timeline=timeline, BDS=TRUE)
+bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=rho, timeline=timeline)
+
+# the reporting term is its own node, as for dnFBDRP
+rec ~ dnFossilRecord(ranges=bd, complete=true)
+rec.clamp(taxa)
 
 factor = 10
 

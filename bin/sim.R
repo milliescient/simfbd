@@ -133,23 +133,14 @@ draw_theta <- function(lambda_a) {
        lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a)
 }
 
-# Reporting models, by the sim's model number. An SBC rep emits all three
-# from one simulated record, so they share a tree, a fossil set and a timeline.
-sbc_models <- c(complete = 1, firstlast = 2, truncated = 3)
+# Reporting models, by the sim's model number. An SBC rep emits both from one
+# simulated record, so they share a tree, a fossil set and a timeline.
+sbc_models <- c(complete = 1, firstlast = 2)
 
 # Which of a species' occurrences get reported, under each model.
 retain_occs <- function(occs, model) {
   # complete: the whole record
   if (model == 1) return(occs)
-
-  # truncated (exchangeable): a random subset capped at K = 2, all of them if there
-  # are fewer. These are not the extremes, so a taxon AT the cap may have more
-  # unreported fossils -- which is what the uniform model (truncated=K) captures. A
-  # taxon below the cap kept its whole record, so it is the complete case.
-  if (model == 3) {
-    if (nrow(occs) > 2) return(occs[sample(nrow(occs), 2), ])
-    return(occs)
-  }
 
   # first/last (model 2): the oldest and youngest. Keep both even when they fall
   # in the same bin, so a bracketed pair is reported as two (possibly identical)
@@ -614,7 +605,7 @@ simulate_batch <- function(reps, reps_dir, lambda_a = 0, origin_sampled = FALSE)
 # run simulations
 #
 # One pass reports each simulated record under every reporting model, so this fills
-# specimens_{complete,firstlast,truncated}/ alongside the one shared timeline,
+# specimens_{complete,firstlast}/ alongside the one shared timeline,
 # true_vals.tsv, true_ranges/ and sim_list.RData.
 #
 # seeds.RData is reused when present, so reruns of a batch stay comparable.
