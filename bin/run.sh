@@ -27,7 +27,7 @@ source "$BIN/env.sh"
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
 # owned by the batch too, but optional, so configs written before it keep working
-OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO"
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -103,7 +103,8 @@ set -a; source "$RUNDIR/config.sh"; set +a
 ORIGIN_PRIOR="${ORIGIN_PRIOR:-uniform}"
 # rho is the generating parameter and the fitted one. A batch that sets it wins, and a run
 # that disagrees is refused rather than silently fitting a rho the data was not drawn under.
-if [ -n "$BATCH_RHO" ] && [ "$RHO" != "$BATCH_RHO" ]; then
+# compared as numbers, so 0 and 0.0 are not a disagreement
+if [ -n "$BATCH_RHO" ] && ! awk -v a="$RHO" -v b="$BATCH_RHO" 'BEGIN{exit !(a+0==b+0)}'; then
   die "$RUNDIR/config.sh fits RHO=$RHO but $BATCHDIR generated under RHO=$BATCH_RHO."
 fi
 for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do

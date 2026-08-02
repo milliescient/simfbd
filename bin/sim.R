@@ -128,6 +128,11 @@ BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 MAX_LINEAGES <- cfg_opt("MAX_LINEAGES", Inf)
 SIM_TIMEOUT <- cfg_opt("SIM_TIMEOUT", Inf)   # seconds one bd.sim call may take
 RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen at the present
+# Fossil-sampled taxa a replicate must hold to be kept, both bounds inclusive. Rejection is on
+# a function of the record and redraws theta, so it leaves the posterior alone. At rho < 1 the
+# extant singletons are added after this test, so it counts the fossil record only.
+MIN_TAXA <- as.integer(cfg_opt("MIN_TAXA", 1))
+MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
 # derived from age: the analysis estimates the origin, so anything it reads that
@@ -425,7 +430,8 @@ simulate_rep <- function(rates, age, shifts,
       # on a function of the reported record leaves the posterior alone.
       # specimens holds only fossil-sampled taxa here; the extant singletons are added after this
       # loop, and rho = 1 means every extant lineage is sampled, so t1 counts either way
-      cond <- length(unique(specimens$taxon)) >= 1 &&
+      ntax <- length(unique(specimens$taxon))
+      cond <- ntax >= MIN_TAXA && ntax <= MAX_TAXA &&
               ( origin_sampled == FALSE ||
                 "t1" %in% specimens$taxon || isTRUE(sim$EXTANT[1]) )
 
