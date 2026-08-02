@@ -27,7 +27,7 @@ source "$BIN/env.sh"
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
 # owned by the batch too, but optional, so configs written before it keep working
-OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT"
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -45,6 +45,7 @@ set -a; source "$BATCHDIR/config.sh"; set +a
 for k in $PRIOR_KEYS; do
   [ -n "${!k:-}" ] || die "$BATCHDIR/config.sh does not set $k"
 done
+BATCH_RHO="${RHO:-}"          # the generating value, before a run config shadows it
 BATCH_CFG_HASH="$(hash_of "$BATCHDIR/config.sh")"
 export BATCHDIR
 
@@ -90,12 +91,21 @@ fi
 
 # ---- analysis config: what to read and how to fit it ----
 [ -f "$RUNDIR/config.sh" ] || die "no $RUNDIR/config.sh"
-for k in $PRIOR_KEYS $OPT_KEYS; do
+for k in $PRIOR_KEYS; do
+  grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
+    && die "$RUNDIR/config.sh sets $k, which the batch owns. Remove it, or make a new batch."
+done
+for k in MAX_LINEAGES SIM_TIMEOUT; do
   grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
     && die "$RUNDIR/config.sh sets $k, which the batch owns. Remove it, or make a new batch."
 done
 set -a; source "$RUNDIR/config.sh"; set +a
 ORIGIN_PRIOR="${ORIGIN_PRIOR:-uniform}"
+# rho is the generating parameter and the fitted one. A batch that sets it wins, and a run
+# that disagrees is refused rather than silently fitting a rho the data was not drawn under.
+if [ -n "$BATCH_RHO" ] && [ "$RHO" != "$BATCH_RHO" ]; then
+  die "$RUNDIR/config.sh fits RHO=$RHO but $BATCHDIR generated under RHO=$BATCH_RHO."
+fi
 for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
   [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
 done

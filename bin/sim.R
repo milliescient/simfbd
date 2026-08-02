@@ -127,6 +127,7 @@ BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 # diversity is exponential in it and a draw in the upper tail of lambda never terminates.
 MAX_LINEAGES <- cfg_opt("MAX_LINEAGES", Inf)
 SIM_TIMEOUT <- cfg_opt("SIM_TIMEOUT", Inf)   # seconds one bd.sim call may take
+RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen at the present
 
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
 # derived from age: the analysis estimates the origin, so anything it reads that
@@ -393,6 +394,19 @@ simulate_rep <- function(rates, age, shifts,
       specs[[m]]$status <- c("extinct", "extant")[specs[[m]]$status + 1]
     }
 
+    # An extant lineage is seen at the present with probability rho, and that observation is
+    # the status flag rather than an occurrence. A survivor that is not seen has no present-day
+    # observation at all: its record stops at its youngest fossil and reads as extinct. One
+    # that left no fossil either is absent from the record entirely, below.
+    rho_seen <- rep(TRUE, length(sim$TS))
+    if (RHO < 1) rho_seen <- runif(length(sim$TS)) < RHO
+    if (RHO < 1) {
+      for (m in seq_along(specs)) {
+        k <- as.integer(sub("^t", "", specs[[m]]$taxon))
+        specs[[m]]$status[specs[[m]]$status == "extant" & !rho_seen[k]] <- "extinct"
+      }
+    }
+
     # the reporting models keep the same species, so any of them fixes the taxon set
     specimens <- specs[[1]]
     
@@ -426,12 +440,12 @@ simulate_rep <- function(rates, age, shifts,
     }
   }
 
-  # rho = 1: every extant lineage is sampled at the present, so include any extant
-  # lineage that left no fossil as a present-day (0,0) tip, named t{k} to match its
-  # sim lineage index. A lone tip reports identically under every model.
+  # A survivor seen at the present that left no fossil still belongs in the record, as a
+  # present-day (0,0) tip named t{k} to match its sim lineage index. A lone tip reports
+  # identically under every model. Survivors rho missed are simply not here.
   if (sbc) {
     reported <- specs[[1]]$taxon
-    for (k in which(sim$EXTANT)) {
+    for (k in which(sim$EXTANT & rho_seen)) {
       nm <- paste0("t", k)
       if (nm %in% reported) next
       for (m in seq_along(specs)) {

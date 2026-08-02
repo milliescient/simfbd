@@ -3,5 +3,8 @@
 # structure and the scripts are tracked for now.
 sims/
 
+# analysis outputs, written to the repo root by bin/bias.R
+*.rds
+
 *.DS_Store
 paleobuddy_install.log
