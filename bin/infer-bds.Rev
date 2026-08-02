@@ -45,6 +45,12 @@ moves.append( mvMatrixElementSlide(bd, delta=0.01, weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=0.1,  weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=1,    weight=taxa.size()/10) )
 
+# rho < 1 puts a point mass at the present on every taxon reported extinct, which the
+# continuous element moves cannot reach
+if (RHO < 1.0) {
+    moves.append( mvExtinctionRJSwitch(bd, weight=taxa.size()/5) )
+}
+
 bb   := bd.getOriginationTimes()
 dd   := bd.getExtinctionTimes()
 tau1 := bd.getFirstAppearances()

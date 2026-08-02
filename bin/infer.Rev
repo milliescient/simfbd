@@ -65,6 +65,12 @@ moves.append( mvMatrixElementSlide(bd, delta=1,    weight=taxa.size()/10) )
 # lets the oldest birth change lineage, which a random walk mixes over poorly
 moves.append( mvMatrixElementSwap(bd, col=4, weight=taxa.size()/5) )
 
+# rho < 1 puts a point mass at the present on every taxon reported extinct, which the
+# continuous element moves cannot reach
+if (RHO < 1.0) {
+    moves.append( mvExtinctionRJSwitch(bd, weight=taxa.size()/5) )
+}
+
 org  := bd.getOrigin()
 bb   := bd.getOriginationTimes()
 dd   := bd.getExtinctionTimes()
