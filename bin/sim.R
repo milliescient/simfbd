@@ -484,7 +484,7 @@ simulate_rep <- function(rates, age, shifts,
   # paleobuddy indexes intervals oldest-first because its shifts run forward from the origin.
   # Everything downstream indexes them youngest-first, so reverse here, once.
   true_vals <- c(rev(lambda), rev(mu), rev(psi), age)
-  if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 9)
+  if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 3 * NINTERVALS)
 
   # return sim, ranges and k
   return(list(SIM = sim, SPECIMENS = specs, RANGES = ranges, 
@@ -659,10 +659,11 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     # if it is, write true values data frame
     
     # name columns; anagenetic runs carry lambda_a before the age
-    tv_names <- c("lambda1", "lambda2", "lambda3",
-                  "mu1", "mu2", "mu3",
-                  "psi1", "psi2", "psi3", "age")
-    if (ncol(true_vals) == 11) tv_names <- append(tv_names, "lambda_a", after = 9)
+    tv_names <- c(paste0("lambda", 1:NINTERVALS), paste0("mu", 1:NINTERVALS),
+                  paste0("psi", 1:NINTERVALS), "age")
+    if (ncol(true_vals) == 3 * NINTERVALS + 2) {
+      tv_names <- append(tv_names, "lambda_a", after = 3 * NINTERVALS)
+    }
     colnames(true_vals) <- tv_names
     
     # save true_vals
