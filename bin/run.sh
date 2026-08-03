@@ -31,6 +31,17 @@ OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
+# A content hash says whether a script still matches, but cannot restore it. The commit can,
+# so record both: --dirty marks the case where the commit does not describe what ran.
+commit_of() { git -C "$1" describe --always --dirty --tags 2>/dev/null || echo none; }
+
+# bin/ is tracked, so a batch generated from a modified tree records a commit that will not
+# reproduce it. Warn once rather than refuse, since a run mid-experiment is still worth having.
+warn_if_dirty() {
+  git -C "$ROOT" diff --quiet HEAD -- "$BIN" 2>/dev/null && return 0
+  echo "warning: $BIN has uncommitted changes, so simfbd_commit will not reproduce this" >&2
+}
+
 die() { echo "error: $*" >&2; exit 1; }
 
 # resolve batch vs analysis from the path shape
@@ -64,13 +75,14 @@ fi
 
 if [ "$have_batch" = false ]; then
   echo "simulating $BATCHDIR: ${NREPS} reps, ${NINTERVALS} intervals of width ${INTERVAL_WIDTH}"
+  warn_if_dirty
   "$RSCRIPT" "$BIN/sim.R" || die "simulation failed"
   {
     printf 'kind\tbatch\n'
     printf 'batch\t%s\n' "$(basename "$BATCHDIR")"
     printf 'config_hash\t%s\n' "$BATCH_CFG_HASH"
     printf 'sim_script_hash\t%s\n' "$(hash_of "$BIN/sim.R")"
-    printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
+    printf 'simfbd_commit\t%s\n' "$(commit_of "$ROOT")"
     printf 'created\t%s\n' "$(date -Is)"
     # batches simulated before this key was added hold true_vals oldest-first
     printf 'true_vals_order\tyoungest_first\n'
@@ -139,6 +151,7 @@ fi
 OUTDIR="$RUNDIR/output"; AUXDIR="$RUNDIR/aux"
 mkdir -p "$OUTDIR" "$AUXDIR" "$RUNDIR/results"
 echo "$(basename "$RUNDIR"): batch=$(basename "$BATCHDIR") reporting=$REPORTING infer=$INFER(complete=$COMPLETE) cond=$COND rho=$RHO reps=$NREPS"
+warn_if_dirty
 
 # a finished rep's log has this many lines; reruns fill gaps rather than redo work
 COMPLETE_LINES=$(( GENS / PRINTGEN + 2 ))
@@ -202,7 +215,7 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'config_hash\t%s\n' "$RUN_CFG_HASH"
   printf 'infer_script_hash\t%s\n' "$(hash_of "$TEMPLATE")"
   printf 'survivors\t%s\n' "$SURVIVORS"
-  printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
+  printf 'simfbd_commit\t%s\n' "$(commit_of "$ROOT")"
   rb_bin="$(command -v "$RBIN" || echo "$RBIN")"
   printf 'rb_path\t%s\n' "$rb_bin"
   printf 'rb_md5\t%s\n' "$(md5sum "$rb_bin" 2>/dev/null | cut -c1-12 || echo unknown)"
