@@ -200,8 +200,12 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'infer_script_hash\t%s\n' "$(hash_of "$TEMPLATE")"
   printf 'survivors\t%s\n' "$SURVIVORS"
   printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
-  printf 'rb_path\t%s\n' "$(command -v "$RBIN" || echo "$RBIN")"
-  printf 'rb_md5\t%s\n' "$(md5sum "$(command -v "$RBIN" || echo "$RBIN")" 2>/dev/null | cut -c1-12 || echo unknown)"
+  rb_bin="$(command -v "$RBIN" || echo "$RBIN")"
+  printf 'rb_path\t%s\n' "$rb_bin"
+  printf 'rb_md5\t%s\n' "$(md5sum "$rb_bin" 2>/dev/null | cut -c1-12 || echo unknown)"
+  # the binary carries its own git describe, so this names what actually ran even after the
+  # source tree moves on. An md5 identifies a build, not a commit: rb embeds its build date.
+  printf 'rb_commit\t%s\n' "$(strings "$rb_bin" 2>/dev/null | grep -m1 -E '^[A-Za-z0-9._-]+-[0-9]+-g[0-9a-f]{6,}$' || echo unknown)"
   printf 'created\t%s\n' "$(date -Is)"
   printf 'specimens\t%s\n' "$SPECIMENS"
   for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN ORIGIN_PRIOR; do printf '%s\t%s\n' "$k" "${!k}"; done
