@@ -78,10 +78,18 @@ def main():
         return
     R = np.array(ranks)
     se = 1.0 / np.sqrt(12 * kept)
-    print(f"mean rank, 0.5 is calibrated, SE {se:.3f}\n")
+    crit = 1.36 / np.sqrt(kept)
+    # the mean alone cannot see a width mismatch, which is what a wrong prior scale gives
+    print(f"mean rank 0.5 (SE {se:.3f}), sd 0.289, tails 0.20, KS below {crit:.3f}\n")
+    print(f"{'':10} {'mean':>7} {'z':>7} {'sd':>7} {'tails':>7} {'KS':>7}")
     for j, name in enumerate(rates):
+        c = np.sort(R[:, j])
+        ks = max(np.abs(np.arange(1, kept + 1) / kept - c).max(),
+                 np.abs(c - np.arange(kept) / kept).max())
+        tail = ((R[:, j] < 0.1) | (R[:, j] > 0.9)).mean()
         m = R[:, j].mean()
-        print(f"{name:10} {m:7.3f}  z {(m - 0.5) / se:+6.2f}")
+        print(f"{name:10} {m:7.3f} {(m - 0.5) / se:+7.2f} {R[:, j].std(ddof=1):7.3f}"
+              f" {tail:7.3f} {ks:7.3f}{'  <--' if ks > crit else ''}")
     print("\nrank below 0.5 means the posterior sits above the truth")
 
 
