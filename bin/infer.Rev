@@ -13,6 +13,9 @@ taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
 moves = VectorMoves()
 
+# an aux file written before the GMRF existed does not set this
+if (!exists("GMRF_SD")) GMRF_SD <- 0
+
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
     n_int <- timeline.size() + 1
