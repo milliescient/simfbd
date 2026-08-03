@@ -11,6 +11,13 @@
 # paleobuddy 
 library(paleobuddy)
 
+# The fork's closed-form draw carries CRAN's version string, so a reinstall replaces it
+# silently and shows up only as a run that is orders of magnitude slower.
+if (!exists("rexp.var") || !any(grepl("stepfun", deparse(body(rexp.var))))) {
+  warning("paleobuddy has no stepfun fast path, so this will be far slower than it should be",
+          call. = FALSE, immediate. = TRUE)
+}
+
 # ape
 library(ape)
 
