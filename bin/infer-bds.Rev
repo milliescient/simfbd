@@ -58,7 +58,7 @@ tauK := bd.getLastAppearances()
 
 mymodel = model(bd)
 monitors = VectorMonitors()
-monitors.append( mnModel(filename=OUTDIR + "/skyfbdr_" + rep + ".log", printgen=PRINTGEN) )
+monitors.append( mnModel(filename=OUTDIR + "/rep_" + rep + ".log", printgen=PRINTGEN) )
 monitors.append( mnScreen(printgen=100000) )
 mymcmc = mcmc(mymodel, monitors, moves, moveschedule="single")
 mymcmc.run(generations=GENS)

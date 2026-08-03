@@ -12,7 +12,7 @@ load(file.path(BATCH, "sim_list.RData"))
 score <- function(arm) {
   out <- file.path(BATCH, "runs", arm, "output")
   res <- list()
-  for (f in list.files(out, pattern = "^skyfbdr_[0-9]+\\.log$", full.names = TRUE)) {
+  for (f in list.files(out, pattern = "^rep_[0-9]+\\.log$", full.names = TRUE)) {
     r <- as.integer(sub(".*_([0-9]+)\\.log$", "\\1", f))
     x <- try(read.table(f, header = TRUE, sep = "\t", check.names = FALSE), silent = TRUE)
     if (inherits(x, "try-error") || nrow(x) < 500) next

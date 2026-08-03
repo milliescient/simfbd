@@ -55,9 +55,9 @@ def read_arm(dirpath, tv, tcols):
     if not os.path.isdir(dirpath):
         return out
     for fn in sorted(os.listdir(dirpath)):
-        if not (fn.startswith("skyfbdr_") and fn.endswith(".log")):
+        if not (fn.startswith("rep_") and fn.endswith(".log")):
             continue
-        rep = int(fn[len("skyfbdr_"):-len(".log")])
+        rep = int(fn[len("rep_"):-len(".log")])
         path = os.path.join(dirpath, fn)
         with open(path) as fh:
             hdr = fh.readline().rstrip("\n").split("\t")

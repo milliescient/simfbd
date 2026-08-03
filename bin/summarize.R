@@ -132,7 +132,7 @@ latent_stats <- function(mf, ids) {
   for (rep in ids) {
     spec <- file.path(sim_dir, mf$specimens, sprintf("taxa_%d.tsv", rep))
     rng <- file.path(sim_dir, "true_ranges", sprintf("ranges_%d.tsv", rep))
-    log <- file.path(mf$run_dir, "output", sprintf("skyfbdr_%d.log", rep))
+    log <- file.path(mf$run_dir, "output", sprintf("rep_%d.log", rep))
     if (!all(file.exists(spec, rng, log))) next
 
     # RevBayes orders taxa by character name, so t10 precedes t2
@@ -278,7 +278,7 @@ make_figures <- function(run) {
   # a finished log carries one header plus GENS/PRINTGEN + 1 samples
   complete_lines <- as.integer(mf$GENS) / as.integer(mf$PRINTGEN) + 2L
   logs <- mixedsort(list.files(file.path(run, "output"),
-                               pattern = "^skyfbdr_.*log$", full.names = TRUE))
+                               pattern = "^rep_.*log$", full.names = TRUE))
   logs <- logs[sapply(logs, function(f) length(readLines(f)) == complete_lines)]
   # a chain stranded at -inf accepts everything and its rates diffuse, but its log is still
   # full length, so length alone does not catch it

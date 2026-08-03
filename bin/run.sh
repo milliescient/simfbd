@@ -146,7 +146,7 @@ COMPLETE_LINES=$(( GENS / PRINTGEN + 2 ))
 
 run_one() {
   local rep="$1"
-  local log="$OUTDIR/skyfbdr_$rep.log"
+  local log="$OUTDIR/rep_$rep.log"
   if [ -f "$log" ] && [ "$(wc -l < "$log")" = "$COMPLETE_LINES" ]; then return 0; fi
   # one self-contained file per rep: the config as Rev variables, then the shared template
   # the oldest bin floor across taxa: PyRate's max FA, and the tightest lower bound the
@@ -218,6 +218,6 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
 } > "$RUN_MANIFEST"
 
 nfail=$(wc -l < "$RUNDIR/failures.log")
-echo "logs: $(ls "$OUTDIR"/skyfbdr_*.log 2>/dev/null | wc -l)/$NREPS, $nfail failed"
+echo "logs: $(ls "$OUTDIR"/rep_*.log 2>/dev/null | wc -l)/$NREPS, $nfail failed"
 echo "manifest: $RUN_MANIFEST"
 echo "now run: $RSCRIPT bin/summarize.R $RUNDIR"

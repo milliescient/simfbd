@@ -31,7 +31,7 @@ manifest <- function(dir, key) {
 # the nine of them. RevBayes numbers intervals opposite to the simulator, so the columns
 # come back in simulator order.
 post_means <- function(run_dir, rep, ni) {
-  f <- file.path(run_dir, "output", sprintf("skyfbdr_%d.log", rep))
+  f <- file.path(run_dir, "output", sprintf("rep_%d.log", rep))
   if (!file.exists(f)) return(NULL)
   d <- try(read.table(f, header = TRUE, sep = "\t", check.names = FALSE), silent = TRUE)
   if (inherits(d, "try-error") || nrow(d) < 50) return(NULL)
