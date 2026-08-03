@@ -16,6 +16,26 @@ moves = VectorMoves()
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
     n_int <- timeline.size() + 1
+    if (GMRF_SD > 0) {
+        # order-1 GMRF on the log rates, anchored at the present and walking back through time.
+        # The simulator draws from this same walk, or the ranks are non-uniform by construction.
+        log_lambda[1] ~ dnNormal(LMEAN, LSD)
+        log_mu[1] ~ dnNormal(MMEAN, MSD)
+        log_psi[1] ~ dnNormal(PMEAN, PSD)
+        for (i in 2:n_int) {
+            log_lambda[i] ~ dnNormal(log_lambda[i-1], GMRF_SD)
+            log_mu[i] ~ dnNormal(log_mu[i-1], GMRF_SD)
+            log_psi[i] ~ dnNormal(log_psi[i-1], GMRF_SD)
+        }
+        for (i in 1:n_int) {
+            moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
+            moves.append( mvSlide(log_mu[i], delta=0.2, weight=1) )
+            moves.append( mvSlide(log_psi[i], delta=0.2, weight=1) )
+            lambda[i] := exp(log_lambda[i])
+            mu[i] := exp(log_mu[i])
+            psi[i] := exp(log_psi[i])
+        }
+    } else {
     for (i in 1:n_int) {
         lambda[i] ~ dnLognormal(LMEAN, LSD)
         moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
@@ -23,6 +43,7 @@ if (SKYLINE) {
         moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
         psi[i] ~ dnLognormal(PMEAN, PSD)
         moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
+    }
     }
 } else {
     lambda ~ dnLognormal(LMEAN, LSD)

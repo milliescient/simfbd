@@ -139,6 +139,9 @@ RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen 
 # a function of the record and redraws theta, so it leaves the posterior alone. At rho < 1 the
 # extant singletons are added after this test, so it counts the fossil record only.
 MIN_TAXA <- as.integer(cfg_opt("MIN_TAXA", 1))
+# Order-1 GMRF on the log rates: anchor at the present, random walk back through time. Unset
+# keeps the independent draw, so an older batch reproduces.
+GMRF_SD <- cfg_opt("GMRF_SD", 0)
 MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
@@ -150,11 +153,18 @@ cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 
 # The generative draw, in one place. Both the initial draw and the rejection redraw
 # call this, so they cannot diverge.
+# Returned oldest-first, the order paleobuddy's forward shifts need. The walk itself runs
+# from the present backwards, so index 1 of the walk is the youngest interval.
+draw_rates <- function(m, s, n) {
+  if (GMRF_SD <= 0) return(rlnorm(n, m, s))
+  rev(exp(cumsum(c(rnorm(1, m, s), rnorm(n - 1, 0, GMRF_SD)))))
+}
+
 draw_theta <- function(lambda_a) {
   list(age    = runif(1, AGE_MIN, AGE_MAX),
-       lambda = rlnorm(NINTERVALS, LMEAN, LSD),
-       mu     = rlnorm(NINTERVALS, MMEAN, MSD),
-       psi    = rlnorm(NINTERVALS, PMEAN, PSD),
+       lambda = draw_rates(LMEAN, LSD, NINTERVALS),
+       mu     = draw_rates(MMEAN, MSD, NINTERVALS),
+       psi    = draw_rates(PMEAN, PSD, NINTERVALS),
        lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a)
 }
 
