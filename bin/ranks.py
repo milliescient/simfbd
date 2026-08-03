@@ -46,8 +46,14 @@ def main():
     rates = [f"{r}[{i}]" for r in ("lambda", "mu", "psi") for i in range(1, ni + 1)]
     tcols = [f"{r}{i}" for r in ("lambda", "mu", "psi") for i in idx]
 
+    # a chain still being written is not a posterior, so require the full sample count
+    cfg = open(os.path.join(run, "config.sh")).read()
+    conf = dict(kv.split("=", 1) for kv in cfg.replace(";", "\n").split()
+                if "=" in kv and not kv.startswith("#"))
+    want = int(conf["GENS"]) // int(conf["PRINTGEN"]) + 1
+
     out = os.path.join(run, "output")
-    ranks, kept, seen = [], 0, 0
+    ranks, kept, seen, partial = [], 0, 0, 0
     for fn in sorted(os.listdir(out)):
         if not fn.endswith(".log") or "_" not in fn:
             continue
@@ -63,7 +69,8 @@ def main():
             a = np.loadtxt(path, delimiter="\t", skiprows=1, usecols=cols, ndmin=2)
         except Exception:
             continue
-        if a.shape[0] < 500:
+        if a.shape[0] != want:
+            partial += 1
             continue
         a = a[int(a.shape[0] * BURN):]
         if min(ess(a[:, j]) for j in range(a.shape[1])) < ESS_MIN:
@@ -73,7 +80,7 @@ def main():
         kept += 1
 
     print(f"\n{run}  truth {'youngest' if youngest else 'oldest'}-first"
-          f"  kept {kept} of {seen}")
+          f"  kept {kept} of {seen}  ({partial} still running, {seen - partial - kept} low ESS)")
     if kept < 2:
         return
     R = np.array(ranks)
