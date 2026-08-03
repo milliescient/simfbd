@@ -470,8 +470,10 @@ simulate_rep <- function(rates, age, shifts,
     }
   }
 
-  # record true values for cov sims; anagenetic runs carry lambda_a before the age
-  true_vals <- c(lambda, mu, psi, age)
+  # record true values for cov sims; anagenetic runs carry lambda_a before the age.
+  # paleobuddy indexes intervals oldest-first because its shifts run forward from the origin.
+  # Everything downstream indexes them youngest-first, so reverse here, once.
+  true_vals <- c(rev(lambda), rev(mu), rev(psi), age)
   if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 9)
 
   # return sim, ranges and k

@@ -8,8 +8,14 @@ suppressMessages(library(posterior))
 setwd("/research/phyloworks/simfbd")
 BATCH <- "sims/survivors"
 ESS_MIN <- 100
-PARS <- c(paste0("lambda", 1:3), paste0("mu", 1:3), paste0("psi", 1:3))
 COLS <- c(sprintf("lambda[%d]", 1:3), sprintf("mu[%d]", 1:3), sprintf("psi[%d]", 1:3))
+
+# A batch without true_vals_order predates the fix and holds the rates oldest-first, which is
+# paleobuddy's order. Reading one as the other silently compares interval 1 against interval 3.
+OLDEST_FIRST <- !any(grepl("true_vals_order",
+                           readLines(file.path(BATCH, "manifest.tsv"), warn = FALSE)))
+idx <- if (OLDEST_FIRST) 3:1 else 1:3
+PARS <- c(paste0("lambda", idx), paste0("mu", idx), paste0("psi", idx))
 
 truth <- read.table(file.path(BATCH, "true_vals.tsv"), header = TRUE, sep = "\t")
 
@@ -42,7 +48,7 @@ for (j in seq_along(PARS)) {
   d <- A[, j] - B[, j]
   sd_ <- sd(d)/sqrt(n)
   cat(sprintf("%-10s %10.3f (z%+5.1f) %10.3f (z%+5.1f) %+7.3f (z%+5.1f)\n",
-              PARS[j], ra, (ra-0.5)/se, rb, (rb-0.5)/se, mean(d),
+              COLS[j], ra, (ra-0.5)/se, rb, (rb-0.5)/se, mean(d),
               if (sd_ > 0) mean(d)/sd_ else 0))
 }
 cat("\nrank below 0.5 means the posterior sits above the truth\n")

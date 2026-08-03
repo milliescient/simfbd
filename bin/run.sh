@@ -72,6 +72,8 @@ if [ "$have_batch" = false ]; then
     printf 'sim_script_hash\t%s\n' "$(hash_of "$BIN/sim.R")"
     printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
     printf 'created\t%s\n' "$(date -Is)"
+    # batches simulated before this key was added hold true_vals oldest-first
+    printf 'true_vals_order\tyoungest_first\n'
     for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
     for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
   } > "$BATCH_MANIFEST"
