@@ -50,7 +50,7 @@ def truth_columns():
     return [f"{r}{i}" for r in ("lambda", "mu", "psi") for i in idx], order
 
 
-def read_arm(dirpath, tv, tcols):
+def read_arm(dirpath, tv, tcols, want):
     out = {}
     if not os.path.isdir(dirpath):
         return out
@@ -69,7 +69,8 @@ def read_arm(dirpath, tv, tcols):
             a = np.loadtxt(path, delimiter="\t", skiprows=1, usecols=cols, ndmin=2)
         except Exception:
             continue
-        if a.shape[0] < 500:
+        # a chain still being written is not a posterior
+        if a.shape[0] != want:
             continue
         a = a[int(a.shape[0] * BURN):]
         if min(ess(a[:, j]) for j in range(a.shape[1])) < ESS_MIN:
@@ -84,8 +85,12 @@ def main():
     tv = np.genfromtxt(tvpath, delimiter="\t", names=True)
     tcols, order = truth_columns()
 
-    a = read_arm(os.path.join(ROOT, BATCH, "runs/survivors_true/output"), tv, tcols)
-    b = read_arm(os.path.join(ROOT, BATCH, "runs/survivors_false/output"), tv, tcols)
+    cfg = open(os.path.join(ROOT, BATCH, "runs/survivors_true/config.sh")).read()
+    conf = dict(kv.split("=", 1) for kv in cfg.replace(";", "\n").split()
+                if "=" in kv and not kv.startswith("#"))
+    want = int(conf["GENS"]) // int(conf["PRINTGEN"]) + 1
+    a = read_arm(os.path.join(ROOT, BATCH, "runs/survivors_true/output"), tv, tcols, want)
+    b = read_arm(os.path.join(ROOT, BATCH, "runs/survivors_false/output"), tv, tcols, want)
     pair = sorted(set(a) & set(b))
     n = len(pair)
     print(f"\n{BATCH}  truth {order}-first  paired {n} (admitted {len(a)}, forbidden {len(b)})")
