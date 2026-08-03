@@ -107,6 +107,7 @@ ORIGIN_PRIOR="${ORIGIN_PRIOR:-uniform}"
 if [ -n "$BATCH_RHO" ] && ! awk -v a="$RHO" -v b="$BATCH_RHO" 'BEGIN{exit !(a+0==b+0)}'; then
   die "$RUNDIR/config.sh fits RHO=$RHO but $BATCHDIR generated under RHO=$BATCH_RHO."
 fi
+SURVIVORS="${SURVIVORS:-true}"
 for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
   [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
 done
@@ -173,6 +174,7 @@ PMEAN <- $PMEAN
 PSD <- $PSD
 AGE_MIN <- $AGE_MIN
 AGE_MAX <- $AGE_MAX
+SURVIVORS <- $SURVIVORS
 source("$TEMPLATE")
 EOF
   "$RBIN" "$AUXDIR/run_$rep.Rev" < /dev/null > "$AUXDIR/rb_$rep.out" 2>&1
@@ -184,7 +186,7 @@ EOF
 export -f run_one
 export ORIGIN_PRIOR
 export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
-       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX
+       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX SURVIVORS
 
 seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
 
@@ -196,6 +198,7 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'batch_config_hash\t%s\n' "$BATCH_CFG_HASH"
   printf 'config_hash\t%s\n' "$RUN_CFG_HASH"
   printf 'infer_script_hash\t%s\n' "$(hash_of "$TEMPLATE")"
+  printf 'survivors\t%s\n' "$SURVIVORS"
   printf 'simfbd_commit\t%s\n' "$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo none)"
   printf 'rb_path\t%s\n' "$(command -v "$RBIN" || echo "$RBIN")"
   printf 'rb_md5\t%s\n' "$(md5sum "$(command -v "$RBIN" || echo "$RBIN")" 2>/dev/null | cut -c1-12 || echo unknown)"

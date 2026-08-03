@@ -7,7 +7,7 @@
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
 ###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
-###   ORIGIN_PRIOR, MAXFA
+###   ORIGIN_PRIOR, MAXFA, SURVIVORS
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
@@ -45,10 +45,10 @@ if (ORIGIN_PRIOR == "exponential") {
 
 if (SKYLINE) {
     bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
-                 timeline=timeline, condition=COND, origin_prior=org_prior)
+                 timeline=timeline, condition=COND, origin_prior=org_prior, survivors=SURVIVORS)
 } else {
     bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
-                 condition=COND, origin_prior=org_prior)
+                 condition=COND, origin_prior=org_prior, survivors=SURVIVORS)
 }
 
 # the reporting model is its own node now, clamped to the observed record
@@ -67,7 +67,7 @@ moves.append( mvMatrixElementSwap(bd, col=4, weight=taxa.size()/5) )
 
 # rho < 1 puts a point mass at the present on every taxon reported extinct, which the
 # continuous element moves cannot reach
-if (RHO < 1.0) {
+if (RHO < 1.0 && SURVIVORS) {
     moves.append( mvExtinctionRJSwitch(bd, weight=taxa.size()/5) )
 }
 
