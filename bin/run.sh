@@ -27,7 +27,7 @@ source "$BIN/env.sh"
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
 # owned by the batch too, but optional, so configs written before it keep working
-OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD"
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD PRESENT"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -193,6 +193,7 @@ AGE_MAX <- $AGE_MAX
 SURVIVORS <- $SURVIVORS
 GMRF_SD <- ${GMRF_SD:-0}
 LAMBDA_A <- ${LAMBDA_A:-0}
+PRESENT <- ${PRESENT:-0}
 source("$TEMPLATE")
 EOF
   "$RBIN" "$AUXDIR/run_$rep.Rev" < /dev/null > "$AUXDIR/rb_$rep.out" 2>&1

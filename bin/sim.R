@@ -142,6 +142,13 @@ if (abs(AGE_MAX %% BIN_WIDTH) > 1e-9) {
 MAX_LINEAGES <- cfg_opt("MAX_LINEAGES", Inf)
 SIM_TIMEOUT <- cfg_opt("SIM_TIMEOUT", Inf)   # seconds one bd.sim call may take
 RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen at the present
+# The record stops here rather than at zero. Occurrences younger than PRESENT are discarded
+# and a lineage still alive there is a boundary survivor, which rho then reports or misses.
+PRESENT <- cfg_opt("PRESENT", 0)
+if (PRESENT > 0 && abs(PRESENT %% BIN_WIDTH) > 1e-9) {
+  warning(sprintf("PRESENT %g is off the BIN_WIDTH %g grid, so a bin straddles it",
+                  PRESENT, BIN_WIDTH), call. = FALSE, immediate. = TRUE)
+}
 # Fossil-sampled taxa a replicate must hold to be kept, both bounds inclusive. Rejection is on
 # a function of the record and redraws theta, so it leaves the posterior alone. At rho < 1 the
 # extant singletons are added after this test, so it counts the fossil record only.
@@ -155,7 +162,8 @@ MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 # derived from age: the analysis estimates the origin, so anything it reads that
 # scales with age hands it the answer. paleobuddy counts shift times forward from
 # the start, so these are age - cov_breaks there.
-cov_breaks <- INTERVAL_WIDTH * seq_len(NINTERVALS - 1)
+# the intervals partition the process's own span, which starts at PRESENT rather than zero
+cov_breaks <- PRESENT + INTERVAL_WIDTH * seq_len(NINTERVALS - 1)
 cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 
 # The generative draw, in one place. Both the initial draw and the rejection redraw
@@ -375,6 +383,15 @@ simulate_rep <- function(rates, age, shifts,
       fossils <- ana$FOSSILS
     }
 
+    # drop what the boundary hides, and recompute who is alive at it
+    if (PRESENT > 0) {
+      fossils <- fossils[fossils$SampT > PRESENT, , drop = FALSE]
+      alive <- is.na(sim$TE) | sim$TE < PRESENT
+      if (nrow(fossils) > 0) {
+        fossils$Extant <- alive[as.integer(sub("^t", "", fossils$Species))]
+      }
+      sim$EXTANT <- alive
+    }
     # SBC fix: if no species were sampled, fall through and let the condition
     # below redraw the whole replicate, rather than resampling fossils on the
     # same tree (which can loop forever for tiny trees once the diversification
@@ -408,7 +425,7 @@ simulate_rep <- function(rates, age, shifts,
 
       # get true range
       range <- c(max(true_occs$SampT),
-                 ifelse(sum(true_occs$Extant) > 0, 0, min(true_occs$SampT)))
+                 ifelse(sum(true_occs$Extant) > 0, PRESENT, min(true_occs$SampT)))
       
       # add to ranges
       ranges <- rbind(ranges, c(sp, range))
@@ -479,10 +496,10 @@ simulate_rep <- function(rates, age, shifts,
       nm <- paste0("t", k)
       if (nm %in% reported) next
       for (m in seq_along(specs)) {
-        specs[[m]] <- rbind(specs[[m]], data.frame(taxon = nm, min_age = 0,
-                            max_age = 0, status = "extant", stringsAsFactors = FALSE))
+        specs[[m]] <- rbind(specs[[m]], data.frame(taxon = nm, min_age = PRESENT,
+                            max_age = PRESENT, status = "extant", stringsAsFactors = FALSE))
       }
-      ranges <- rbind(ranges, data.frame(taxon = nm, first_age = 0, last_age = 0,
+      ranges <- rbind(ranges, data.frame(taxon = nm, first_age = PRESENT, last_age = PRESENT,
                                          stringsAsFactors = FALSE))
     }
   }
