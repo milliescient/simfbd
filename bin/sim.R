@@ -129,10 +129,10 @@ PMEAN <- cfg("PMEAN"); PSD <- cfg("PSD")
 AGE_MIN <- cfg("AGE_MIN"); AGE_MAX <- cfg("AGE_MAX")
 BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 
-# An origin drawn inside a bin leaves a partial oldest interval that some replicates cannot
-# initialise from. Keep AGE_MAX on the bin grid.
+# Off the grid, the top occurrence bin runs past AGE_MAX, so no origin the prior can draw
+# covers it and tau_1 is squeezed into what is left.
 if (abs(AGE_MAX %% BIN_WIDTH) > 1e-9) {
-  warning(sprintf("AGE_MAX %g is not a multiple of BIN_WIDTH %g, so a few reps will fail to start",
+  warning(sprintf("AGE_MAX %g is off the BIN_WIDTH %g grid, so the top bin extends past it",
                   AGE_MAX, BIN_WIDTH), call. = FALSE, immediate. = TRUE)
 }
 
