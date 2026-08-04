@@ -128,7 +128,8 @@ done
 case "$MODEL" in
   fbdr) TEMPLATE="$BIN/infer.Rev" ;;       # dnFBDRP: accounts for unsampled lineages
   bds)  TEMPLATE="$BIN/infer-bds.Rev" ;;   # dnBDS: complete lineage sampling, PyRate's assumption
-  *)    die "MODEL=$MODEL is not wired; use fbdr or bds" ;;
+  fbdsp) TEMPLATE="$BIN/infer-fbdsp.Rev" ;; # dnFBDSP: the tree process, the only one with lambda_a
+  *)    die "MODEL=$MODEL is not wired; use fbdr, bds or fbdsp" ;;
 esac
 case "$INFER" in
   complete)   COMPLETE=true ;;
@@ -191,6 +192,7 @@ AGE_MIN <- $AGE_MIN
 AGE_MAX <- $AGE_MAX
 SURVIVORS <- $SURVIVORS
 GMRF_SD <- ${GMRF_SD:-0}
+LAMBDA_A <- ${LAMBDA_A:-0}
 source("$TEMPLATE")
 EOF
   "$RBIN" "$AUXDIR/run_$rep.Rev" < /dev/null > "$AUXDIR/rb_$rep.out" 2>&1

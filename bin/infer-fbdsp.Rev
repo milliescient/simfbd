@@ -1,0 +1,76 @@
+### FBDSP (tree) inference with mixed speciation, for measuring whether lambda_a is
+### identifiable rather than merely calibrated.
+###
+### dnFBDRP carries no lambda_a, so anagenesis needs the tree process. The topology is
+### sampled here where the matrix process marginalises it.
+###
+### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
+###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
+###   LAMBDA_A
+
+taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
+
+moves = VectorMoves()
+
+if (SKYLINE) {
+    timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
+    n_int <- timeline.size() + 1
+} else {
+    n_int <- 1
+}
+for (i in 1:n_int) {
+    lambda[i] ~ dnLognormal(LMEAN, LSD)
+    moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
+    mu[i] ~ dnLognormal(MMEAN, MSD)
+    moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
+    psi[i] ~ dnLognormal(PMEAN, PSD)
+    moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
+}
+
+# constant across intervals, matching how the simulator draws it
+lambda_a ~ dnLognormal(LMEAN, LSD)
+moves.append( mvSlice(lambda_a, window=0.1, weight=2, search_method="stepping_out") )
+
+# dnFBDSP takes the origin as a value, so it carries its prior here
+origin ~ dnUniform(AGE_MIN, AGE_MAX)
+moves.append( mvSlide(origin, delta=0.5, weight=2) )
+moves.append( mvSlide(origin, delta=2.0, weight=2) )
+
+if (SKYLINE) {
+    tr ~ dnFBDSP(origin=origin, lambda=lambda, mu=mu, psi=psi, rho=RHO, timeline=timeline,
+                 condition=COND, taxa=taxa, lambda_a=lambda_a, extended=false)
+} else {
+    tr ~ dnFBDSP(origin=origin, lambda=lambda, mu=mu, psi=psi, rho=RHO,
+                 condition=COND, taxa=taxa, lambda_a=lambda_a, extended=false)
+}
+
+rec ~ dnFossilRecord(ranges=tr, complete=COMPLETE)
+rec.clamp(taxa)
+
+# a root sampled ancestor is bounded by the origin, so this move needs it
+moves.append( mvFossilTipTimeUniform(tr, origin=origin, weight=taxa.size()) )
+# an anagenetic event is a sampled ancestor, and the initial tree holds none
+moves.append( mvCollapseExpandFossilBranch(tr, origin, weight=2*taxa.size()) )
+if (taxa.size() > 1) {
+    # anagenesis breaks the equal-density premise mvBuddingTopologyRedraw rests on
+    moves.append( mvFNPR(tr, weight=taxa.size()) )
+    moves.append( mvNarrow(tr, weight=taxa.size()) )
+    # the only move that relabels which lineage carries a given birth age
+    moves.append( mvRotateNode(tr, weight=taxa.size()) )
+    moves.append( mvNodeTimeSlideUniform(tr, weight=taxa.size()) )
+    moves.append( mvRootTimeSlideUniform(tr, origin, weight=2) )
+}
+moves.append( mvStratigraphicRange(tr, weight=taxa.size()) )
+
+bb   := tr.getOriginationTimes()
+tau1 := tr.getFirstAppearances()
+tauK := tr.getLastAppearances()
+nsa  := tr.numSampledAncestors()
+
+mymodel = model(tr)
+monitors = VectorMonitors()
+monitors.append( mnModel(filename=OUTDIR + "/rep_" + rep + ".log", printgen=PRINTGEN) )
+monitors.append( mnScreen(printgen=100000) )
+mymcmc = mcmc(mymodel, monitors, moves, moveschedule="single")
+mymcmc.run(generations=GENS)
+q()
