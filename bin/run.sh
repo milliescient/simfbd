@@ -126,7 +126,7 @@ for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
   [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
 done
 case "$MODEL" in
-  fbdr) TEMPLATE="$BIN/infer.Rev" ;;       # dnFBDRP: accounts for unsampled lineages
+  fbdr) TEMPLATE="$BIN/infer-fbdrp.Rev" ;;       # dnFBDRP: accounts for unsampled lineages
   bds)  TEMPLATE="$BIN/infer-bds.Rev" ;;   # dnBDS: complete lineage sampling, PyRate's assumption
   fbdsp) TEMPLATE="$BIN/infer-fbdsp.Rev" ;; # dnFBDSP: the tree process, the only one with lambda_a
   *)    die "MODEL=$MODEL is not wired; use fbdr, bds or fbdsp" ;;

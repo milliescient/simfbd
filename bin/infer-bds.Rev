@@ -9,6 +9,9 @@
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
+# an aux file written before truncation existed does not set this
+if (!exists("PRESENT")) PRESENT <- 0
+
 moves = VectorMoves()
 
 if (SKYLINE) {
@@ -22,7 +25,7 @@ if (SKYLINE) {
         psi[i] ~ dnLognormal(PMEAN, PSD)
         moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
     }
-    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO,
+    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
                timeline=timeline, condition=COND)
 } else {
     lambda ~ dnLognormal(LMEAN, LSD)
@@ -31,7 +34,7 @@ if (SKYLINE) {
     moves.append( mvScale(lambda, weight=3) )
     moves.append( mvScale(mu, weight=3) )
     moves.append( mvScale(psi, weight=3) )
-    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, condition=COND)
+    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT, condition=COND)
 }
 
 # the reporting term is its own node, as for dnFBDRP

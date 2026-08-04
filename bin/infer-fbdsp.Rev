@@ -10,6 +10,9 @@
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
+# an aux file written before truncation existed does not set this
+if (!exists("PRESENT")) PRESENT <- 0
+
 moves = VectorMoves()
 
 if (SKYLINE) {
@@ -37,10 +40,10 @@ moves.append( mvSlide(origin, delta=0.5, weight=2) )
 moves.append( mvSlide(origin, delta=2.0, weight=2) )
 
 if (SKYLINE) {
-    tr ~ dnFBDSP(origin=origin, lambda=lambda, mu=mu, psi=psi, rho=RHO, timeline=timeline,
+    tr ~ dnFBDSP(origin=origin, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT, timeline=timeline,
                  condition=COND, taxa=taxa, lambda_a=lambda_a, extended=false)
 } else {
-    tr ~ dnFBDSP(origin=origin, lambda=lambda, mu=mu, psi=psi, rho=RHO,
+    tr ~ dnFBDSP(origin=origin, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
                  condition=COND, taxa=taxa, lambda_a=lambda_a, extended=false)
 }
 
