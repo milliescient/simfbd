@@ -129,6 +129,13 @@ PMEAN <- cfg("PMEAN"); PSD <- cfg("PSD")
 AGE_MIN <- cfg("AGE_MIN"); AGE_MAX <- cfg("AGE_MAX")
 BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 
+# An origin drawn inside a bin leaves a partial oldest interval that some replicates cannot
+# initialise from. Keep AGE_MAX on the bin grid.
+if (abs(AGE_MAX %% BIN_WIDTH) > 1e-9) {
+  warning(sprintf("AGE_MAX %g is not a multiple of BIN_WIDTH %g, so a few reps will fail to start",
+                  AGE_MAX, BIN_WIDTH), call. = FALSE, immediate. = TRUE)
+}
+
 # Ceiling on lineages ever born. Unset means no ceiling, which is right when the origin
 # is shallow. Deeper origins need one: the oldest interval absorbs the extra depth, so
 # diversity is exponential in it and a draw in the upper tail of lambda never terminates.
