@@ -145,6 +145,10 @@ RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen 
 # The record stops here rather than at zero. Occurrences younger than PRESENT are discarded
 # and a lineage still alive there is a boundary survivor, which rho then reports or misses.
 PRESENT <- cfg_opt("PRESENT", 0)
+# Chance a sampled interior occurrence is reported. 1 emits no thinned record, since it
+# would duplicate the complete one. The extremes are always reported, which is what makes
+# the rate estimable rather than confounded with psi.
+REPORT_PROB <- cfg_opt("REPORT_PROB", 1)
 if (PRESENT > 0 && abs(PRESENT %% BIN_WIDTH) > 1e-9) {
   warning(sprintf("PRESENT %g is off the BIN_WIDTH %g grid, so a bin straddles it",
                   PRESENT, BIN_WIDTH), call. = FALSE, immediate. = TRUE)
@@ -180,7 +184,8 @@ draw_theta <- function(lambda_a) {
        lambda = draw_rates(LMEAN, LSD, NINTERVALS),
        mu     = draw_rates(MMEAN, MSD, NINTERVALS),
        psi    = draw_rates(PMEAN, PSD, NINTERVALS),
-       lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a)
+       lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a,
+       report_prob = if (REPORT_PROB < 1) runif(1) else 1)
 }
 
 # Expected lineages ever born, 1 + integral of lambda(t)E[N(t)]: E[N] grows as exp(lambda-mu)
@@ -223,9 +228,10 @@ bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
 # Reporting models, by the sim's model number. An SBC rep emits both from one
 # simulated record, so they share a tree, a fossil set and a timeline.
 sbc_models <- c(complete = 1, firstlast = 2)
+if (REPORT_PROB < 1) sbc_models <- c(sbc_models, thinned = 3)
 
 # Which of a species' occurrences get reported, under each model.
-retain_occs <- function(occs, model) {
+retain_occs <- function(occs, model, rp) {
   # complete: the whole record
   if (model == 1) return(occs)
 
@@ -233,8 +239,15 @@ retain_occs <- function(occs, model) {
   # in the same bin, so a bracketed pair is reported as two (possibly identical)
   # occurrences and the count >= 2 likelihood marginalizes the interior within the
   # bin. Only a genuine single fossil yields count == 1.
-  if (nrow(occs) > 1) return(occs[c(1, nrow(occs)), ])
-  occs[1, ]
+  if (model == 2) {
+    if (nrow(occs) > 1) return(occs[c(1, nrow(occs)), ])
+    return(occs[1, ])
+  }
+  # thinned (model 3): both extremes always, each interior kept with probability rp
+  if (nrow(occs) <= 2) return(occs)
+  interior <- occs[-c(1, nrow(occs)), , drop = FALSE]
+  keep <- runif(nrow(interior)) < rp
+  rbind(occs[1, ], interior[keep, , drop = FALSE], occs[nrow(occs), ])
 }
 
 # Anagenetic speciation relabels the same tree rather than reshaping it: split each
@@ -300,7 +313,7 @@ add_anagenesis <- function(sim, fossils, lambda_a) {
 
 # simulate one rep. lambda_a > 0 adds anagenetic speciation; it is redrawn with the
 # other rates so the rejection loop keeps the joint draw intact.
-simulate_rep <- function(rates, age, shifts,
+simulate_rep <- function(rates, age, shifts, report_prob = 1,
                          model, unc, extant_singletons,
                          sbc = FALSE, lambda_a = 0, origin_sampled = FALSE) {
   ## set parameters
@@ -420,7 +433,7 @@ simulate_rep <- function(rates, age, shifts,
       
       # report this species' record under each model
       for (m in seq_along(models)) {
-        specs[[m]] <- rbind(specs[[m]], retain_occs(occs, models[m]))
+        specs[[m]] <- rbind(specs[[m]], retain_occs(occs, models[m], report_prob))
       }
 
       # get true range
@@ -509,6 +522,7 @@ simulate_rep <- function(rates, age, shifts,
   # Everything downstream indexes them youngest-first, so reverse here, once.
   true_vals <- c(rev(lambda), rev(mu), rev(psi), age)
   if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 3 * NINTERVALS)
+  if (REPORT_PROB < 1) true_vals <- append(true_vals, report_prob, after = length(true_vals) - 1)
 
   # return sim, ranges and k
   return(list(SIM = sim, SPECIMENS = specs, RANGES = ranges, 
@@ -598,6 +612,7 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     
     # run sim
     sim_rep <- simulate_rep(rates, age, shifts,
+                            report_prob = if (sbc) th$report_prob else 1,
                             model = model, unc = unc,
                             extant_singletons = extant_singletons,
                             sbc = sbc, lambda_a = lambda_a,
@@ -683,11 +698,15 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     # if it is, write true values data frame
     
     # name columns; anagenetic runs carry lambda_a before the age
+    # the optional columns sit between the rates and the age, in the order they are appended
     tv_names <- c(paste0("lambda", 1:NINTERVALS), paste0("mu", 1:NINTERVALS),
-                  paste0("psi", 1:NINTERVALS), "age")
-    if (ncol(true_vals) == 3 * NINTERVALS + 2) {
-      tv_names <- append(tv_names, "lambda_a", after = 3 * NINTERVALS)
+                  paste0("psi", 1:NINTERVALS))
+    has_rp <- REPORT_PROB < 1
+    if (ncol(true_vals) - 3 * NINTERVALS - 1 - as.integer(has_rp) > 0) {
+      tv_names <- c(tv_names, "lambda_a")
     }
+    if (has_rp) tv_names <- c(tv_names, "report_prob")
+    tv_names <- c(tv_names, "age")
     colnames(true_vals) <- tv_names
     
     # save true_vals

@@ -17,6 +17,8 @@ moves = VectorMoves()
 if (!exists("GMRF_SD")) GMRF_SD <- 0
 # an aux file written before truncation existed does not set this
 if (!exists("PRESENT")) PRESENT <- 0
+# an aux file written before thinning existed does not set this
+if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
 
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
@@ -78,7 +80,16 @@ if (SKYLINE) {
 }
 
 # the reporting model is its own node now, clamped to the observed record
-rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
+# REPORT_PROB below 1 means the batch thinned the interior, so the rate is estimated rather
+# than assumed. The extremes are always reported either way, which is what identifies it.
+if (REPORT_PROB < 1.0) {
+    reporting ~ dnBeta(1.0, 1.0)
+    moves.append( mvSlide(reporting, delta=0.1, weight=5) )
+    moves.append( mvBetaProbability(reporting, delta=2.0, weight=5) )
+    rec ~ dnFossilRecord(ranges=bd, reporting=reporting)
+} else {
+    rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
+}
 rec.clamp(taxa)
 
 moves.append( mvMatrixElementScale(bd, lambda=0.01, weight=taxa.size()/10) )
