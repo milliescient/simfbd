@@ -1,22 +1,51 @@
 ### Skyline birth-death-sampling inference over dnBDS, with the record on a dnFossilRecord node.
 ###
-### The counterpart to bin/infer.Rev: same data, same priors, same reporting split, but a
-### process that assumes complete lineage sampling. There is no p(), no survival term and
-### no attachment count, so the comparison against dnFBDRP isolates exactly that assumption.
+### A copy of bin/infer-fbdrp.Rev with the process swapped and nothing else changed: same
+### priors, origin prior, moves and monitors, so the two arms differ only in the density.
+###
+### Every prior hyperparameter arrives as a variable set by the per-rep aux file that
+### bin/run.sh generates from the batch config.sh. Nothing is hardcoded here: the batch
+### that generated the data and the analysis that fits it read one definition, so they
+### cannot drift apart.
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
-###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD
+###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
+###   ORIGIN_PRIOR, MAXFA, SURVIVORS
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
+moves = VectorMoves()
+
+# an aux file written before the GMRF existed does not set this
+if (!exists("GMRF_SD")) GMRF_SD <- 0
 # an aux file written before truncation existed does not set this
 if (!exists("PRESENT")) PRESENT <- 0
-
-moves = VectorMoves()
+# an aux file written before thinning existed does not set this
+if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
 
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
     n_int <- timeline.size() + 1
+    if (GMRF_SD > 0) {
+        # order-1 GMRF on the log rates, anchored at the present and walking back through time.
+        # The simulator draws from this same walk, or the ranks are non-uniform by construction.
+        log_lambda[1] ~ dnNormal(LMEAN, LSD)
+        log_mu[1] ~ dnNormal(MMEAN, MSD)
+        log_psi[1] ~ dnNormal(PMEAN, PSD)
+        for (i in 2:n_int) {
+            log_lambda[i] ~ dnNormal(log_lambda[i-1], GMRF_SD)
+            log_mu[i] ~ dnNormal(log_mu[i-1], GMRF_SD)
+            log_psi[i] ~ dnNormal(log_psi[i-1], GMRF_SD)
+        }
+        for (i in 1:n_int) {
+            moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
+            moves.append( mvSlide(log_mu[i], delta=0.2, weight=1) )
+            moves.append( mvSlide(log_psi[i], delta=0.2, weight=1) )
+            lambda[i] := exp(log_lambda[i])
+            mu[i] := exp(log_mu[i])
+            psi[i] := exp(log_psi[i])
+        }
+    } else {
     for (i in 1:n_int) {
         lambda[i] ~ dnLognormal(LMEAN, LSD)
         moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
@@ -25,8 +54,7 @@ if (SKYLINE) {
         psi[i] ~ dnLognormal(PMEAN, PSD)
         moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
     }
-    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-               timeline=timeline, condition=COND)
+    }
 } else {
     lambda ~ dnLognormal(LMEAN, LSD)
     mu ~ dnLognormal(MMEAN, MSD)
@@ -34,11 +62,37 @@ if (SKYLINE) {
     moves.append( mvScale(lambda, weight=3) )
     moves.append( mvScale(mu, weight=3) )
     moves.append( mvScale(psi, weight=3) )
-    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT, condition=COND)
 }
 
-# the reporting term is its own node, as for dnFBDRP
-rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
+# uniform is the simulator's own age draw, U(AGE_MIN, AGE_MAX). exponential is PyRate's:
+# rate and lower truncation both the oldest observed first appearance, no upper bound.
+# Truncating an exponential below at m and shifting it to m are the same thing, so the
+# offset argument gives PyRate's prior exactly.
+if (ORIGIN_PRIOR == "exponential") {
+    org_prior = dnExponential(1/MAXFA, offset=MAXFA)
+} else {
+    org_prior = dnUniform(AGE_MIN, AGE_MAX)
+}
+
+if (SKYLINE) {
+    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
+                 timeline=timeline, condition=COND, origin_prior=org_prior)
+} else {
+    bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
+                 condition=COND, origin_prior=org_prior)
+}
+
+# the reporting model is its own node now, clamped to the observed record
+# REPORT_PROB below 1 means the batch thinned the interior, so the rate is estimated rather
+# than assumed. The extremes are always reported either way, which is what identifies it.
+if (REPORT_PROB < 1.0) {
+    reporting ~ dnBeta(1.0, 1.0)
+    moves.append( mvSlide(reporting, delta=0.1, weight=5) )
+    moves.append( mvBetaProbability(reporting, delta=2.0, weight=5) )
+    rec ~ dnFossilRecord(ranges=bd, reporting=reporting)
+} else {
+    rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
+}
 rec.clamp(taxa)
 
 moves.append( mvMatrixElementScale(bd, lambda=0.01, weight=taxa.size()/10) )
@@ -48,12 +102,16 @@ moves.append( mvMatrixElementSlide(bd, delta=0.01, weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=0.1,  weight=taxa.size()/10) )
 moves.append( mvMatrixElementSlide(bd, delta=1,    weight=taxa.size()/10) )
 
+# lets the oldest birth change lineage, which a random walk mixes over poorly
+moves.append( mvMatrixElementSwap(bd, col=4, weight=taxa.size()/5) )
+
 # rho < 1 puts a point mass at the present on every taxon reported extinct, which the
 # continuous element moves cannot reach
-if (RHO < 1.0) {
+if (RHO < 1.0 && SURVIVORS) {
     moves.append( mvExtinctionRJSwitch(bd, weight=taxa.size()/5) )
 }
 
+org  := bd.getOrigin()
 bb   := bd.getOriginationTimes()
 dd   := bd.getExtinctionTimes()
 tau1 := bd.getFirstAppearances()
