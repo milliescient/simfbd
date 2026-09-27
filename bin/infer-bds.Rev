@@ -21,8 +21,10 @@ if (!exists("PRESENT")) PRESENT <- 0
 if (DROP_PRESENT_ONLY) {
     all_taxa <- taxa
     n_kept <- 0
+    # a comparison retypes its operand to Real, and dnBDS takes present as RealPos, so compare a copy
+    present_age <- PRESENT
     for (i in 1:all_taxa.size()) {
-        if (all_taxa[i].getMaxAge() > PRESENT) {
+        if (all_taxa[i].getMaxAge() > present_age) {
             n_kept <- n_kept + 1
             kept[n_kept] <- all_taxa[i]
         }
