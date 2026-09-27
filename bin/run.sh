@@ -200,7 +200,21 @@ PRESENT <- ${PRESENT:-0}
 REPORT_PROB <- ${REPORT_PROB:-1}
 source("$TEMPLATE")
 EOF
+  # SLOTS caps chains across every run.sh sharing SLOT_DIR, so concurrent runs fill the cores
+  # between them: each chain holds one slot lock for as long as rb runs
+  if [ -n "${SLOTS:-}" ]; then
+    local fd s
+    while true; do
+      for s in $(seq 1 "$SLOTS"); do
+        exec {fd}>"$SLOT_DIR/slot_$s"
+        flock -n "$fd" && break 2
+        exec {fd}>&-
+      done
+      sleep 10
+    done
+  fi
   "$RBIN" "$AUXDIR/run_$rep.Rev" < /dev/null > "$AUXDIR/rb_$rep.out" 2>&1
+  [ -n "${SLOTS:-}" ] && exec {fd}>&-
   if [ ! -f "$log" ] || [ "$(wc -l < "$log")" != "$COMPLETE_LINES" ]; then
     echo "$rep :: $(grep -m1 -i error "$AUXDIR/rb_$rep.out" || echo 'no log written')" >> "$RUNDIR/failures.log"
   fi
@@ -209,7 +223,8 @@ EOF
 export -f run_one
 export ORIGIN_PRIOR
 export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
-       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX SURVIVORS GMRF_SD DROP_PRESENT_ONLY
+       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX SURVIVORS GMRF_SD DROP_PRESENT_ONLY \
+       SLOTS SLOT_DIR
 
 seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
 
