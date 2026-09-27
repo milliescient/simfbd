@@ -161,6 +161,10 @@ MIN_TAXA <- as.integer(cfg_opt("MIN_TAXA", 1))
 # keeps the independent draw, so an older batch reproduces.
 GMRF_SD <- cfg_opt("GMRF_SD", 0)
 MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
+# "record" makes MIN_TAXA and MAX_TAXA count every reported taxon, the survivors seen at the
+# present included; unset keeps the fossil-only count, so an older batch reproduces.
+TAXA_COUNT <- Sys.getenv("TAXA_COUNT", "fossil")
+if (!TAXA_COUNT %in% c("fossil", "record")) stop("TAXA_COUNT must be fossil or record")
 
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
 # derived from age: the analysis estimates the origin, so anything it reads that
@@ -485,6 +489,8 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       # specimens holds only fossil-sampled taxa here; the extant singletons are added after this
       # loop, and rho = 1 means every extant lineage is sampled, so t1 counts either way
       ntax <- length(unique(specimens$taxon))
+      if (TAXA_COUNT == "record")
+        ntax <- length(union(unique(specimens$taxon), sprintf("t%d", which(sim$EXTANT & rho_seen))))
       cond <- ntax >= MIN_TAXA && ntax <= MAX_TAXA &&
               ( origin_sampled == FALSE ||
                 "t1" %in% specimens$taxon || isTRUE(sim$EXTANT[1]) )
