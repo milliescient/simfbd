@@ -27,7 +27,7 @@ source "$BIN/env.sh"
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
 # owned by the batch too, but optional, so configs written before it keep working
-OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD PRESENT REPORT_PROB TAXA_COUNT"
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD PRESENT REPORT_PROB TAXA_COUNT MIN_FOSSIL_TAXA"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -122,6 +122,8 @@ if [ -n "$BATCH_RHO" ] && ! awk -v a="$RHO" -v b="$BATCH_RHO" 'BEGIN{exit !(a+0=
   die "$RUNDIR/config.sh fits RHO=$RHO but $BATCHDIR generated under RHO=$BATCH_RHO."
 fi
 SURVIVORS="${SURVIVORS:-true}"
+# dnBDS only: leave out taxa seen only alive at the present, which PyRate's input never holds
+DROP_PRESENT_ONLY="${DROP_PRESENT_ONLY:-false}"
 for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN NCORES; do
   [ -n "${!k:-}" ] || die "$RUNDIR/config.sh does not set $k"
 done
@@ -191,6 +193,7 @@ PSD <- $PSD
 AGE_MIN <- $AGE_MIN
 AGE_MAX <- $AGE_MAX
 SURVIVORS <- $SURVIVORS
+DROP_PRESENT_ONLY <- $DROP_PRESENT_ONLY
 GMRF_SD <- ${GMRF_SD:-0}
 LAMBDA_A <- ${LAMBDA_A:-0}
 PRESENT <- ${PRESENT:-0}
@@ -206,7 +209,7 @@ EOF
 export -f run_one
 export ORIGIN_PRIOR
 export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
-       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX SURVIVORS GMRF_SD
+       COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX SURVIVORS GMRF_SD DROP_PRESENT_ONLY
 
 seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
 
@@ -219,6 +222,7 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'config_hash\t%s\n' "$RUN_CFG_HASH"
   printf 'infer_script_hash\t%s\n' "$(hash_of "$TEMPLATE")"
   printf 'survivors\t%s\n' "$SURVIVORS"
+  printf 'drop_present_only\t%s\n' "$DROP_PRESENT_ONLY"
   printf 'simfbd_commit\t%s\n' "$(commit_of "$ROOT")"
   rb_bin="$(command -v "$RBIN" || echo "$RBIN")"
   printf 'rb_path\t%s\n' "$rb_bin"

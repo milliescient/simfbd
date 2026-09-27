@@ -165,6 +165,8 @@ MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 # present included; unset keeps the fossil-only count, so an older batch reproduces.
 TAXA_COUNT <- Sys.getenv("TAXA_COUNT", "fossil")
 if (!TAXA_COUNT %in% c("fossil", "record")) stop("TAXA_COUNT must be fossil or record")
+# a floor on fossil-sampled taxa alone, for analyses that leave the present-only taxa out
+MIN_FOSSIL_TAXA <- as.integer(cfg_opt("MIN_FOSSIL_TAXA", 0))
 
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
 # derived from age: the analysis estimates the origin, so anything it reads that
@@ -492,6 +494,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       if (TAXA_COUNT == "record")
         ntax <- length(union(unique(specimens$taxon), sprintf("t%d", which(sim$EXTANT & rho_seen))))
       cond <- ntax >= MIN_TAXA && ntax <= MAX_TAXA &&
+              length(unique(specimens$taxon)) >= MIN_FOSSIL_TAXA &&
               ( origin_sampled == FALSE ||
                 "t1" %in% specimens$taxon || isTRUE(sim$EXTANT[1]) )
 

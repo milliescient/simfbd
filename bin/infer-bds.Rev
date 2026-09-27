@@ -14,6 +14,22 @@
 
 taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
+# PyRate's input is fossil occurrences, so a taxon seen only alive at the present is not in it.
+# Dropping them keeps the rest exactly PyRate's likelihood under condition="sampling".
+if (!exists("DROP_PRESENT_ONLY")) DROP_PRESENT_ONLY <- FALSE
+if (!exists("PRESENT")) PRESENT <- 0
+if (DROP_PRESENT_ONLY) {
+    all_taxa <- taxa
+    n_kept <- 0
+    for (i in 1:all_taxa.size()) {
+        if (all_taxa[i].getMaxAge() > PRESENT) {
+            n_kept <- n_kept + 1
+            kept[n_kept] <- all_taxa[i]
+        }
+    }
+    taxa <- kept
+}
+
 moves = VectorMoves()
 
 # an aux file written before the GMRF existed does not set this
