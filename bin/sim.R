@@ -171,6 +171,22 @@ GMRF_SD <- cfg_opt("GMRF_SD", 0)
 #
 # lambda and mu carry the through-time signal; psi gets its own, usually narrower, so that a
 # replicate's sampling regime stays a meaningful label to stratify on.
+# Stationary alternative to the random walk: AR(1) on log lambda, log turnover and log psi,
+# with lag-1 autocorrelation OU_PHI and stationary sds LSD, TSD, PSD. Setting OU_PHI switches
+# it on and GMRF_SD is then ignored.
+#
+# Two reasons to prefer it. A random walk's marginal prior widens with distance from the
+# anchor, so the oldest interval gets a far vaguer prior than the youngest; an AR(1) is
+# stationary, so every interval gets the same one. And parameterising on turnover rather
+# than mu keeps net diversification tied to lambda, which is what stops a drifting
+# lambda - mu compounding into clades that trip the MAX_LINEAGES screen. Measured, that
+# screen fires on 18% of random-walk draws and effectively none of these.
+#
+# phi = 0 recovers the independent lognormal draw the first SBC used.
+OU_PHI <- cfg_opt("OU_PHI", NA)
+TMEAN  <- cfg_opt("TMEAN", 0)
+TSD    <- cfg_opt("TSD", 0.3)
+OU <- !is.na(OU_PHI)
 GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
 GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
 GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
@@ -197,12 +213,31 @@ cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 # call this, so they cannot diverge.
 # Returned oldest-first, the order paleobuddy's forward shifts need. The walk itself runs
 # from the present backwards, so index 1 of the walk is the youngest interval.
+# One AR(1) path on the log scale, youngest interval first.
+ou_path <- function(m, tau, phi, n) {
+  x <- numeric(n); x[1] <- rnorm(1, m, tau)
+  innov <- tau * sqrt(1 - phi^2)
+  if (n > 1) for (i in 2:n) x[i] <- m + phi * (x[i - 1] - m) + rnorm(1, 0, innov)
+  x
+}
+
 draw_rates <- function(m, s, n, walk_sd = GMRF_SD) {
   if (walk_sd <= 0) return(rlnorm(n, m, s))
   rev(exp(cumsum(c(rnorm(1, m, s), rnorm(n - 1, 0, walk_sd)))))
 }
 
 draw_theta <- function(lambda_a) {
+  if (OU) {
+    # paleobuddy wants oldest-first, so reverse once, after lambda and mu are assembled
+    ll <- ou_path(LMEAN, LSD, OU_PHI, NINTERVALS)
+    lt <- ou_path(TMEAN, TSD, OU_PHI, NINTERVALS)
+    lp <- ou_path(PMEAN, PSD, OU_PHI, NINTERVALS)
+    return(list(age = runif(1, AGE_MIN, AGE_MAX),
+                lambda = rev(exp(ll)), mu = rev(exp(ll + lt)), psi = rev(exp(lp)),
+                sd_rates = OU_PHI, sd_psi = TSD,
+                lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a,
+                report_prob = if (REPORT_PROB < 1) runif(1) else 1))
+  }
   sd_rates <- if (GMRF_HIER) rlnorm(1, GMRF_SD_MEAN, GMRF_SD_SD) else GMRF_SD
   sd_psi   <- if (GMRF_HIER) rlnorm(1, GMRF_PSI_MEAN, GMRF_PSI_SD) else GMRF_SD
   list(age    = runif(1, AGE_MIN, AGE_MAX),
@@ -552,7 +587,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
   # Everything downstream indexes them youngest-first, so reverse here, once.
   true_vals <- c(rev(lambda), rev(mu), rev(psi), age)
   # the drawn walk widths are truth too, and what the comparison stratifies on
-  if (GMRF_HIER) true_vals <- c(true_vals, sd_rates, sd_psi)
+  if (GMRF_HIER && !OU) true_vals <- c(true_vals, sd_rates, sd_psi)
   if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 3 * NINTERVALS)
   if (REPORT_PROB < 1) true_vals <- append(true_vals, report_prob, after = length(true_vals) - 1)
 
