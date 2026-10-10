@@ -47,8 +47,20 @@ pipeline end to end in about a minute.
 deeper and nothing else changed, so pooling all four gives a range of tree sizes. They
 also set `MAX_LINEAGES`, a ceiling on lineages ever born: a deep origin leaves the oldest
 interval unbounded, so a draw in the upper tail of lambda never finishes simulating.
-The ceiling is applied by refusing the draw before it is simulated and redrawing theta,
-which truncates the prior rather than conditioning on the record.
+
+That ceiling is the one filter that costs something. It is applied by refusing the draw
+before it is simulated, so it is a function of theta alone: it truncates the prior the
+simulator draws from while the analysis keeps the untruncated one, and the SBC ranks are
+non-uniform by exactly that much. A floor and ceiling on the number of reported taxa is a
+function of the record and is free, because conditioning on a function of the record leaves
+the posterior given that record alone. Every batch now records `screened_frac`, the fraction
+of draws the ceiling refused, in its manifest.
+
+How much it costs is a question of resolution: a truncation of fraction e shifts a mean rank
+by roughly e/2, against a standard error of 0.289/sqrt(n). At n = 10000 that is 0.0029, so e
+has to stay near or below 0.5% for the truncation to be invisible. A random-walk prior cannot
+meet that at any workable ceiling, which is why the final design uses a stationary field.
+See `docs/SBC-DESIGN.md`.
 
 ## The two key axes
 
