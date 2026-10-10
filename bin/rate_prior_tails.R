@@ -62,6 +62,12 @@ for (nint in c(4, 8, 16, 32)) for (kind in c("gmrf", "ar1")) {
   d <- draws(kind, nint)
   put(sprintf("rej_%s_%d", kind, nint), sprintf("%.2f", 100*mean(d$en > 400)))
 }
+# how far the refusal rate moves over that range, which is what the page claims
+for (kind in c("gmrf", "ar1")) {
+  lo <- as.numeric(get(sprintf("rej_%s_4", kind), envir = out))
+  hi <- as.numeric(get(sprintf("rej_%s_32", kind), envir = out))
+  put(sprintf("rej_ratio_%s", kind), sprintf("%.1f", if (kind == "gmrf") hi/lo else lo/hi))
+}
 # 2. the tail itself, at the design point
 for (kind in c("gmrf", "ar1")) {
   d <- draws(kind, 8); e <- d$en[is.finite(d$en)]
@@ -79,6 +85,37 @@ for (kind in c("gmrf_lm", "hsmrf")) {
 }
 put("ndraw", N)
 
+# 4. the closed form behind the scaling. log E[N] is the span times the AVERAGE net rate
+# over the intervals, so what the screen bounds is a path average, not a single rate. For a
+# walk that average does not concentrate as the grid is refined and for a stationary process
+# it does, which is the whole asymmetry:
+#
+#   walk    Var(mean of x) = a^2 + s^2 (K-1)(2K-1) / 6K        -> grows like s^2 K / 3
+#   AR(1)   Var(mean of x) = a^2 + (t^2/K^2)(K + 2 sum (K-k) phi^k)  -> a^2 + O(1/K)
+#
+# Both are exact, and checked against draws below.
+vbar_rw <- function(K, a, s) a^2 + s^2 * (K-1) * (2*K-1) / (6*K)
+vbar_ar <- function(K, a, t, phi) {
+  k <- seq_len(K-1)
+  a^2 + (t^2/K^2) * (K + 2*sum((K-k) * phi^k))
+}
+mc <- function(kind, K, n = 20000) {
+  m <- replicate(n, mean(if (kind == "gmrf") rw(LM, ANCH, SIGMA, K)
+                         else ar(LM, ANCH, TAU, PHI, K)))
+  var(m)
+}
+vb <- list()
+for (K in c(4, 8, 16, 32)) {
+  ex <- c(gmrf = vbar_rw(K, ANCH, SIGMA), ar1 = vbar_ar(K, ANCH, TAU, PHI))
+  for (kind in c("gmrf", "ar1")) {
+    put(sprintf("vbar_%s_%d", kind, K), sprintf("%.2f", ex[[kind]]))
+    vb[[sprintf("%s_%d", kind, K)]] <- c(exact = ex[[kind]], sim = mc(kind, K))
+  }
+}
+put("vbar_gmrf_ratio", sprintf("%.1f", vbar_rw(32, ANCH, SIGMA) / vbar_rw(4, ANCH, SIGMA)))
+put("vbar_ar1_ratio", sprintf("%.2f", vbar_ar(32, ANCH, TAU, PHI) / vbar_ar(4, ANCH, TAU, PHI)))
+put("vbar_check", sprintf("%.3f", max(abs(vapply(vb, function(v) v[["sim"]]/v[["exact"]] - 1, 0)))))
+
 # A readable summary first, then the key/value pairs the page substitutes.
 g <- function(k) get(k, envir = out)
 say <- c(
@@ -90,7 +127,14 @@ say <- c(
           c(g("rej_ar1_4"), g("rej_ar1_8"), g("rej_ar1_16"), g("rej_ar1_32"))),
   "",
   sprintf("  expected clade size at 8 intervals, p99.9: random walk %s, AR(1) %s",
-          g("q99p9_gmrf"), g("q99p9_ar1")))
+          g("q99p9_gmrf"), g("q99p9_ar1")),
+  "",
+  "  variance of the log-rate path average, the quantity the screen bounds:",
+  sprintf("  %-10s %12s %12s", "intervals", "random walk", "AR(1)"),
+  sprintf("  %-10s %12s %12s", c(4, 8, 16, 32),
+          c(g("vbar_gmrf_4"), g("vbar_gmrf_8"), g("vbar_gmrf_16"), g("vbar_gmrf_32")),
+          c(g("vbar_ar1_4"), g("vbar_ar1_8"), g("vbar_ar1_16"), g("vbar_ar1_32"))),
+  sprintf("  closed forms, worst relative error against %d draws: %s", N, g("vbar_check")))
 
 keys <- sort(ls(out))
 pairs <- vapply(keys, function(k) paste0(k, "\t", g(k)), "")
