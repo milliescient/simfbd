@@ -8,9 +8,9 @@ classical paleontological rate estimators on the same data. Every arm reads the 
 
 ## The prior
 
-A stationary OU process on the log rates, sampled at the interval midpoints. The mean
-reversion is given as a half-life in Myr and is fixed, because estimating it on eight
-intervals would be estimating a property of the discretisation rather than of the process.
+A stationary OU process on the log rates, sampled at the interval midpoints, with mean
+reversion `OU_THETA` = 0.5 per Myr. It is fixed, because estimating it on eight intervals
+would be estimating a property of the discretisation rather than of the process.
 
 It is specified per unit time and not per interval, and that is the point. A lag-1
 correlation attached to the cells makes the prior a property of the grid: refine the grid at
@@ -18,8 +18,9 @@ a fixed span and you get a different process, with more accumulated variance. Me
 against the expected-clade screen, a walk with variance per cell refuses 0.92% of draws at
 four intervals and 19.80% at sixty-four, while the same walk with variance per Myr holds at
 4.30% and 5.12%. Neither is usable, but only the first gets worse the finer you cut. The
-same applies to a stationary field, and specifying the half-life in Myr is what makes the
-interval count a resolution choice and nothing else.
+same applies to a stationary field, and specifying theta per Myr is what makes the interval
+count a resolution choice and nothing else. Refusal varies by less than 0.02 points over
+theta between 0.4 and 0.6, so the value is not a delicate choice.
 
 ```sh
 NINTERVALS=8
@@ -32,7 +33,7 @@ BIN_WIDTH=1.5; BIN_MAX=36
 LAMBDA_A=0
 ORIGIN_SAMPLED=false
 
-OU_HALFLIFE=1.5             # Myr, the one hyperparameter that stays fixed
+OU_THETA=0.5                # per Myr, the one hyperparameter that stays fixed
 LANCH=0.25                  # across-replicate level of log lambda
 TMEAN=0; TANCH=0.2          # turnover, centred on mu = lambda
 PANCH=0.85                  # across-replicate level of log psi: the sampling sweep
@@ -67,8 +68,8 @@ because the analysis estimates the origin and anything it reads that scales with
 it the answer. The origin falls between 15 and 21, so the oldest interval runs from 10.5 to
 wherever the origin is and is 4.5 to 10.5 Myr wide, against 1.5 for the other seven.
 
-The half-life handles that directly. The lags between interval midpoints are 1.5 Myr six
-times and then 4.5, so the correlations are 0.5 six times and then 0.125: the oldest cell is
+Theta per Myr handles that directly. The lags between interval midpoints are 1.5 Myr six
+times and then 4.5, so the correlations are 0.472 six times and then 0.105: the oldest cell is
 far from its neighbour and is coupled to it weakly, which is what an OU process on the
 timeline says. The simulator writes those lags to `ou_lags.tsv` and the inference reads
 them, so the two cannot disagree about the prior.
@@ -78,8 +79,8 @@ age. Using the replicate's age would be exact, but it would put the origin into 
 prior, and this model has a history of origin couplings breaking calibration. Measured over
 40,000 draws, the two differ by 0.015 points of refusal rate, so the coupling buys nothing.
 
-**Eight cells, not more.** The prior is no longer a reason to choose otherwise, since the
-half-life makes the count a pure resolution choice. The data is the reason. Measured over
+**Eight cells, not more.** The prior is no longer a reason to choose otherwise, since theta
+per Myr makes the count a pure resolution choice. The data is the reason. Measured over
 400 replicates of the record:
 
 | | |
@@ -102,7 +103,7 @@ A fully regular grid is also available and was tested: `dnFBDRP` accepts breakpo
 than the origin, so a 1.5 Myr grid out to `AGE_MAX` with fourteen cells initialises and
 runs. It is not used, because it puts the origin in the interior of the grid where it
 crosses breakpoints, which is an untested regime for this likelihood and would need its own
-validation to buy nothing the half-life does not already give.
+validation to buy nothing the per-Myr parameterisation does not already give.
 
 ## Which filters are free and which are not
 
@@ -120,7 +121,7 @@ truncation of fraction `e` shifts a mean rank by about `e/2` against a standard 
 `0.289/sqrt(n)`, which is 0.0029 at n = 10000, so `e` has to stay near or below 0.5%.
 
 Under the per-cell parameterisation, over the 111,811 draws its 10,000-replicate batch
-took: **0.446% screened, 0 timeouts**. Being re-measured under the half-life. Raising
+took: **0.446% screened, 0 timeouts**. Being re-measured under theta per Myr. Raising
 `MAX_LINEAGES` is what buys this, since it converts theta rejections into free data
 rejections: 400 refuses 1.87%, 4000 refuses 0.81%, 20000 refuses 0.56% at the wider
 `LANCH=0.4`, and 200000 starts producing timeouts instead. Every batch records
@@ -161,11 +162,15 @@ by construction and it has to be read as accuracy against known truth, stratifie
 
 ## Chain length
 
-100M generations, printing every 50,000, which retains 1500 draws after warmup. Being
-re-measured under the half-life parameterisation, because the oldest interval is now coupled
-to its neighbour at 0.125 rather than 0.5 and its mixing is not the mixing already measured.
-Under the per-cell parameterisation, on 40 replicates: median per-replicate minimum ESS 738,
-2 of 40 below 200, and the worst coordinate was `lambda[1]` in every one of them. The GMRF's figure at the same
+100M generations, printing every 50,000, which retains 1500 draws after warmup. Measured on
+30 replicates under the per-Myr prior: median per-replicate minimum ESS 708, 2 of 30 below
+200, maximum Rhat 1.016. The per-cell prior gave 738 on 40 replicates, so decoupling the
+oldest interval costs nothing in mixing.
+
+What it does change is where the chain struggles. Under the per-cell prior the worst
+coordinate was `lambda[1]` in every replicate. Under this one it is spread over `mu[6]` and
+`psi[3]` to `psi[6]`, the middle and older intervals. Worth knowing before reading a low ESS
+in one coordinate as a defect in that coordinate. The GMRF's figure at the same
 length was 873, so the five estimated hyperparameters cost about 15% in the worst
 coordinate rather than an order of magnitude, and `tau_rates` and `tau_psi` are not
 themselves the bottleneck.
