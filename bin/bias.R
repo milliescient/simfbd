@@ -28,9 +28,9 @@ manifest <- function(dir, key) {
 }
 
 # posterior mean of each rate in each interval, and the worst effective sample size over
-# the nine of them. RevBayes numbers intervals opposite to the simulator, so the columns
-# come back in simulator order.
-post_means <- function(run_dir, rep, ni) {
+# the nine of them. Returned in the batch's own truth order, which the caller passes in:
+# a batch predating simfbd 9fddf3a records the truth oldest-first, the opposite of RevBayes.
+post_means <- function(run_dir, rep, ni, flip) {
   f <- file.path(run_dir, "output", sprintf("rep_%d.log", rep))
   if (!file.exists(f)) return(NULL)
   d <- try(read.table(f, header = TRUE, sep = "\t", check.names = FALSE), silent = TRUE)
@@ -38,9 +38,12 @@ post_means <- function(run_dir, rep, ni) {
   d <- d[floor(nrow(d) * BURNIN):nrow(d), ]
   cols <- as.vector(outer(RATES, seq_len(ni), function(p, i) sprintf("%s[%d]", p, i)))
   if (!all(cols %in% colnames(d))) return(NULL)
-  m <- sapply(RATES, function(p) rev(colMeans(d[, sprintf("%s[%d]", p, seq_len(ni)), drop = FALSE])))
+  m <- sapply(RATES, function(p) {
+    v <- colMeans(d[, sprintf("%s[%d]", p, seq_len(ni)), drop = FALSE])
+    if (flip) rev(v) else v
+  })
   if (any(is.na(m))) return(NULL)
-  list(means = m,                              # rows = simulator interval, cols = rate
+  list(means = m,                              # rows = truth-file interval, cols = rate
        ess = min(apply(d[, cols], 2, posterior::ess_basic)))
 }
 
@@ -62,10 +65,13 @@ for (batch in args) {
   age_max <- as.numeric(manifest(batch, "AGE_MAX"))
   nums <- read.table(file.path(batch, "nums.tsv"), header = TRUE)
   tv <- read.table(file.path(batch, "true_vals.tsv"), header = TRUE)
+  ord <- manifest(batch, "true_vals_order")
+  if (length(ord) != 1) ord <- "oldest_first"      # batches predating the key
+  flip <- identical(ord, "oldest_first")
   failed <- lapply(RUNS, function(r) init_failed(file.path(batch, "runs", r)))
 
   for (rep in seq_len(nreps)) {
-    fits <- lapply(RUNS, function(r) post_means(file.path(batch, "runs", r), rep, ni))
+    fits <- lapply(RUNS, function(r) post_means(file.path(batch, "runs", r), rep, ni, flip))
     if (any(sapply(fits, is.null))) {
       why <- if (any(sapply(failed, function(v) rep %in% v))) "init" else "no log"
       excluded[[length(excluded) + 1]] <- data.frame(
