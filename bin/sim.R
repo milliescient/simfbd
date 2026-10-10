@@ -187,6 +187,27 @@ OU_PHI <- cfg_opt("OU_PHI", NA)
 TMEAN  <- cfg_opt("TMEAN", 0)
 TSD    <- cfg_opt("TSD", 0.3)
 OU <- !is.na(OU_PHI)
+# The stationary prior's own hierarchy, and the two things it has to do at once. The MEAN of
+# each path is drawn per replicate, which sweeps regimes ACROSS replicates, and the
+# stationary sd is drawn per replicate, which varies rates WITHIN one. Both are parameters
+# the analysis estimates, so both are truth and both have to rank uniformly.
+#
+# phi stays fixed. It is the one hyperparameter whose meaning is tied to the grid, since an
+# AR(1) with lag-1 correlation phi on intervals of width dt is an OU process with
+# mean-reversion -log(phi)/dt, so estimating it on 8 intervals would be estimating a
+# property of the discretisation. Fixing it pins the process to the timeline we chose.
+#
+# The intercept sds at 0 keep the fixed mean an older batch drew with.
+LANCH <- cfg_opt("LANCH", 0)
+TANCH <- cfg_opt("TANCH", 0)
+PANCH <- cfg_opt("PANCH", 0)
+OU_SD_MEAN  <- cfg_opt("OU_SD_MEAN", NA)
+OU_SD_SD    <- cfg_opt("OU_SD_SD", 0)
+OU_PSI_MEAN <- cfg_opt("OU_PSI_MEAN", NA)
+OU_PSI_SD   <- cfg_opt("OU_PSI_SD", 0)
+OU_HIER <- !is.na(OU_SD_MEAN)
+if (OU_HIER && is.na(OU_PSI_MEAN)) stop("OU_SD_MEAN set without OU_PSI_MEAN")
+if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_PHI")
 GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
 GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
 GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
@@ -226,16 +247,47 @@ draw_rates <- function(m, s, n, walk_sd = GMRF_SD) {
   rev(exp(cumsum(c(rnorm(1, m, s), rnorm(n - 1, 0, walk_sd)))))
 }
 
+# Truth, named, in one place. It used to be assembled by positional appends, which put
+# report_prob between two hyperparameters when both were on, and read the hyperparameters out
+# of the global environment, so a replicate accepted without a rejection recorded the
+# previous replicate's values. Names travel with the values now, so neither can recur.
+truth_of <- function(th, lambda, mu, psi, age) {
+  K <- length(lambda)
+  v <- c(setNames(rev(lambda), paste0("lambda", seq_len(K))),
+         setNames(rev(mu),     paste0("mu", seq_len(K))),
+         setNames(rev(psi),    paste0("psi", seq_len(K))))
+  if (th$lambda_a > 0) v <- c(v, lambda_a = th$lambda_a)
+  if (REPORT_PROB < 1) v <- c(v, report_prob = th$report_prob)
+  v <- c(v, age = age)
+  if (OU) {
+    if (LANCH > 0) v <- c(v, m_lambda = th$m_lambda)
+    if (TANCH > 0) v <- c(v, m_turnover = th$m_turnover)
+    if (PANCH > 0) v <- c(v, m_psi = th$m_psi)
+    if (OU_HIER)   v <- c(v, tau_rates = th$tau_rates, tau_psi = th$tau_psi)
+  } else if (GMRF_HIER) {
+    v <- c(v, gmrf_sd_rates = th$sd_rates, gmrf_sd_psi = th$sd_psi)
+  }
+  v
+}
+
 draw_theta <- function(lambda_a) {
   if (OU) {
+    # lambda and turnover share one stationary sd, psi gets its own, so that a replicate's
+    # sampling regime stays a label worth stratifying on
+    tau_rates <- if (OU_HIER) rlnorm(1, OU_SD_MEAN, OU_SD_SD) else LSD
+    tau_psi   <- if (OU_HIER) rlnorm(1, OU_PSI_MEAN, OU_PSI_SD) else PSD
+    m_lambda   <- if (LANCH > 0) rnorm(1, LMEAN, LANCH) else LMEAN
+    m_turnover <- if (TANCH > 0) rnorm(1, TMEAN, TANCH) else TMEAN
+    m_psi      <- if (PANCH > 0) rnorm(1, PMEAN, PANCH) else PMEAN
     # paleobuddy wants oldest-first, so reverse once, after lambda and mu are assembled
-    ll <- ou_path(LMEAN, LSD, OU_PHI, NINTERVALS)
-    lt <- ou_path(TMEAN, TSD, OU_PHI, NINTERVALS)
-    lp <- ou_path(PMEAN, PSD, OU_PHI, NINTERVALS)
+    ll <- ou_path(m_lambda, tau_rates, OU_PHI, NINTERVALS)
+    lt <- ou_path(m_turnover, tau_rates, OU_PHI, NINTERVALS)
+    lp <- ou_path(m_psi, tau_psi, OU_PHI, NINTERVALS)
     return(list(age = runif(1, AGE_MIN, AGE_MAX),
                 lambda = rev(exp(ll)), mu = rev(exp(ll + lt)), psi = rev(exp(lp)),
-                sd_rates = OU_PHI, sd_psi = TSD,
-                lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a,
+                m_lambda = m_lambda, m_turnover = m_turnover, m_psi = m_psi,
+                tau_rates = tau_rates, tau_psi = tau_psi,
+                lambda_a = if (lambda_a > 0) rlnorm(1, m_lambda, tau_rates) else lambda_a,
                 report_prob = if (REPORT_PROB < 1) runif(1) else 1))
   }
   sd_rates <- if (GMRF_HIER) rlnorm(1, GMRF_SD_MEAN, GMRF_SD_SD) else GMRF_SD
@@ -273,6 +325,11 @@ expected_lineages <- function(lambda, mu, age, shifts) {
 # draws hit this depends on machine load, so a batch reproduces from its seeds only up to
 # the replicates that time out; sim_timeouts reports how many that was.
 sim_timeouts <- 0
+# draws refused by the expected-clade screen. This one is a function of theta alone, so it
+# truncates the prior and the ranks are non-uniform by exactly that much: the number belongs
+# in the record of every batch, not just in a pilot.
+sim_screened <- 0
+sim_drawn <- 0
 bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
   call_it <- function() bd.sim(n0, lambda, mu, tMax, lShifts = lShifts,
                                mShifts = mShifts, nFinal = c(nFinal, Inf))
@@ -376,7 +433,9 @@ add_anagenesis <- function(sim, fossils, lambda_a) {
 # other rates so the rejection loop keeps the joint draw intact.
 simulate_rep <- function(rates, age, shifts, report_prob = 1,
                          model, unc, extant_singletons,
-                         sbc = FALSE, lambda_a = 0, origin_sampled = FALSE) {
+                         sbc = FALSE, lambda_a = 0, origin_sampled = FALSE,
+                         theta = NULL) {
+  th <- theta
   ## set parameters
   # number of initial species
   n0 <- 1
@@ -418,21 +477,31 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
   # create conditions boolean
   cond <- FALSE
 
-  # every rejection path redraws theta jointly, so none of them can diverge
-  redraw <- function() {
-    th <- draw_theta(lambda_a)
-    age <<- th$age; tMax <<- th$age
-    lambda <<- th$lambda; mu <<- th$mu; psi <<- th$psi; lambda_a <<- th$lambda_a
-    sd_rates <<- th$sd_rates; sd_psi <<- th$sd_psi
-    lShifts <<- mShifts <<- pShifts <<- c(0, th$age - rev(cov_breaks))
+  # Every rejection path redraws theta jointly, so none of them can diverge. Deriving every
+  # local from the one draw in one place is what keeps a redraw from leaving part of the old
+  # one behind: report_prob used to survive a rejection, which made the retained pair a
+  # partial redraw rather than a draw from the joint.
+  use_theta <- function(t) {
+    th <<- t
+    age <<- t$age; tMax <<- t$age
+    lambda <<- t$lambda; mu <<- t$mu; psi <<- t$psi
+    lambda_a <<- t$lambda_a; report_prob <<- t$report_prob
+    lShifts <<- mShifts <<- pShifts <<- c(0, t$age - rev(cov_breaks))
     bins <<- cov_bins
+  }
+  redraw <- function() {
+    sim_drawn <<- sim_drawn + 1
+    use_theta(draw_theta(lambda_a))
   }
 
   # run until we fulfill conditions
   while (!cond) {
     # a draw whose expected tree exceeds the ceiling is refused before it is simulated
     if (sbc && is.finite(MAX_LINEAGES)) {
-      while (expected_lineages(lambda, mu, tMax, lShifts) > MAX_LINEAGES) redraw()
+      while (expected_lineages(lambda, mu, tMax, lShifts) > MAX_LINEAGES) {
+        sim_screened <<- sim_screened + 1
+        redraw()
+      }
     }
 
     # run BD simulation - make sure we get 10+ species
@@ -582,14 +651,9 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     }
   }
 
-  # record true values for cov sims; anagenetic runs carry lambda_a before the age.
   # paleobuddy indexes intervals oldest-first because its shifts run forward from the origin.
-  # Everything downstream indexes them youngest-first, so reverse here, once.
-  true_vals <- c(rev(lambda), rev(mu), rev(psi), age)
-  # the drawn walk widths are truth too, and what the comparison stratifies on
-  if (GMRF_HIER && !OU) true_vals <- c(true_vals, sd_rates, sd_psi)
-  if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 3 * NINTERVALS)
-  if (REPORT_PROB < 1) true_vals <- append(true_vals, report_prob, after = length(true_vals) - 1)
+  # Everything downstream indexes them youngest-first, so truth_of reverses, once.
+  true_vals <- if (sbc) truth_of(th, lambda, mu, psi, age) else NULL
 
   # return sim, ranges and k
   return(list(SIM = sim, SPECIMENS = specs, RANGES = ranges, 
@@ -649,8 +713,8 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     save(seeds, file = paste0(base_dir, "seeds.RData"))
   }
   
-  # start true values data frame for an SBC set
-  true_vals <- data.frame(matrix(nrow = 0, ncol = 4))
+  # one named row per replicate, bound at the end so the names become the columns
+  true_vals <- vector("list", reps)
   
   # iterate through reps
   for (rep in 1:reps) {
@@ -668,7 +732,6 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
       age <- th$age
       lambda <- th$lambda; mu <- th$mu; psi <- th$psi; lambda_a <- th$lambda_a
 
-      sd_rates <- th$sd_rates; sd_psi <- th$sd_psi
       # make rates list
       rates <- list(lambda = lambda,
                     mu = mu,
@@ -684,7 +747,8 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
                             model = model, unc = unc,
                             extant_singletons = extant_singletons,
                             sbc = sbc, lambda_a = lambda_a,
-                            origin_sampled = origin_sampled)
+                            origin_sampled = origin_sampled,
+                            theta = if (sbc) th else NULL)
     
     # an SBC set shares one timeline and adds to true_vals
     if (sbc) {
@@ -697,7 +761,7 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
                   quote = FALSE, sep = "\t")
       
       # add true values to true_vals
-      true_vals <- rbind(true_vals, sim_rep$TV)
+      true_vals[[rep]] <- sim_rep$TV
     }
     
     # get sim, specimens and ranges
@@ -763,21 +827,8 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     write.table(true_rates, paste0(base_dir, "true_vals.tsv"),
                 col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
   } else {
-    # if it is, write true values data frame
-    
-    # name columns; anagenetic runs carry lambda_a before the age
-    # the optional columns sit between the rates and the age, in the order they are appended
-    tv_names <- c(paste0("lambda", 1:NINTERVALS), paste0("mu", 1:NINTERVALS),
-                  paste0("psi", 1:NINTERVALS))
-    has_rp <- REPORT_PROB < 1
-    n_sd <- if (GMRF_HIER) 2 else 0
-    if (ncol(true_vals) - 3 * NINTERVALS - 1 - as.integer(has_rp) - n_sd > 0) {
-      tv_names <- c(tv_names, "lambda_a")
-    }
-    if (has_rp) tv_names <- c(tv_names, "report_prob")
-    tv_names <- c(tv_names, "age")
-    if (GMRF_HIER) tv_names <- c(tv_names, "gmrf_sd_rates", "gmrf_sd_psi")
-    colnames(true_vals) <- tv_names
+    # truth_of named every column when it built the row, so binding them is the whole job
+    true_vals <- do.call(rbind, true_vals)
     
     # save true_vals
     write.table(true_vals, 
@@ -849,6 +900,22 @@ if (!exists("sim_functions_only")) {
   if (is.finite(SIM_TIMEOUT)) {
     keys <- c(keys, "SIM_TIMEOUT"); vals <- c(vals, SIM_TIMEOUT)
     cat("draws refused for outrunning the clock:", sim_timeouts, "\n")
+  }
+  if (is.finite(MAX_LINEAGES)) {
+    tot <- sim_drawn + reps
+    cat(sprintf("draws refused by the expected-clade screen: %d of %d (%.2f%%)\n",
+                sim_screened, tot, 100 * sim_screened / max(tot, 1)))
+    writeLines(sprintf("screened\t%d\nscreened_of\t%d\nscreened_frac\t%s",
+                       sim_screened, tot, signif(sim_screened / max(tot, 1), 4)),
+               paste0(reps_dir, "screened.tsv"))
+  }
+  if (OU) {
+    keys <- c(keys, "OU_PHI", "LANCH", "TANCH", "PANCH")
+    vals <- c(vals, OU_PHI, LANCH, TANCH, PANCH)
+    if (OU_HIER) {
+      keys <- c(keys, "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD")
+      vals <- c(vals, OU_SD_MEAN, OU_SD_SD, OU_PSI_MEAN, OU_PSI_SD)
+    }
   }
   writeLines(sprintf("%s\t%s", keys, vals), paste0(reps_dir, "sim_params.tsv"))
   cat("done\n")

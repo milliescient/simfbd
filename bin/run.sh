@@ -27,7 +27,7 @@ source "$BIN/env.sh"
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
 # owned by the batch too, but optional, so configs written before it keep working
-OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD GMRF_SD_MEAN GMRF_SD_SD GMRF_PSI_MEAN GMRF_PSI_SD OU_PHI TMEAN TSD PRESENT REPORT_PROB TAXA_COUNT MIN_FOSSIL_TAXA"
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD GMRF_SD_MEAN GMRF_SD_SD GMRF_PSI_MEAN GMRF_PSI_SD OU_PHI TMEAN TSD LANCH TANCH PANCH OU_SD_MEAN OU_SD_SD OU_PSI_MEAN OU_PSI_SD PRESENT REPORT_PROB TAXA_COUNT MIN_FOSSIL_TAXA"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -88,6 +88,8 @@ if [ "$have_batch" = false ]; then
     printf 'true_vals_order\tyoungest_first\n'
     for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
     for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
+    # what the theta screen actually refused, measured rather than configured
+    [ -f "$BATCHDIR/screened.tsv" ] && cat "$BATCHDIR/screened.tsv"
   } > "$BATCH_MANIFEST"
 
   # the simulator reports what it actually drew with; disagreement means a key did not reach it
@@ -199,9 +201,17 @@ GMRF_SD_MEAN <- ${GMRF_SD_MEAN:--1}
 GMRF_SD_SD <- ${GMRF_SD_SD:-0}
 GMRF_PSI_MEAN <- ${GMRF_PSI_MEAN:--1}
 GMRF_PSI_SD <- ${GMRF_PSI_SD:-0}
+BINDIR <- "$BIN"
 OU_PHI <- ${OU_PHI:--1}
 TMEAN <- ${TMEAN:-0}
 TSD <- ${TSD:-0.3}
+LANCH <- ${LANCH:-0}
+TANCH <- ${TANCH:-0}
+PANCH <- ${PANCH:-0}
+OU_SD_MEAN <- ${OU_SD_MEAN:--1}
+OU_SD_SD <- ${OU_SD_SD:-0}
+OU_PSI_MEAN <- ${OU_PSI_MEAN:--1}
+OU_PSI_SD <- ${OU_PSI_SD:-0}
 LAMBDA_A <- ${LAMBDA_A:-0}
 PRESENT <- ${PRESENT:-0}
 REPORT_PROB <- ${REPORT_PROB:-1}
@@ -231,7 +241,8 @@ export -f run_one
 export ORIGIN_PRIOR
 export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE COND RHO GENS PRINTGEN \
        COMPLETE_LINES LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX SURVIVORS GMRF_SD \
-       GMRF_SD_MEAN GMRF_SD_SD GMRF_PSI_MEAN GMRF_PSI_SD OU_PHI TMEAN TSD DROP_PRESENT_ONLY \
+       GMRF_SD_MEAN GMRF_SD_SD GMRF_PSI_MEAN GMRF_PSI_SD OU_PHI TMEAN TSD \
+       LANCH TANCH PANCH OU_SD_MEAN OU_SD_SD OU_PSI_MEAN OU_PSI_SD DROP_PRESENT_ONLY \
        SLOTS SLOT_DIR
 
 seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}

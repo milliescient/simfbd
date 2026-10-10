@@ -13,100 +13,10 @@ taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
 
 moves = VectorMoves()
 
-# an aux file written before the GMRF existed does not set this
-if (!exists("GMRF_SD")) GMRF_SD <- 0
-# the hierarchical variant draws the walk width per replicate, so estimate it here
-if (!exists("GMRF_SD_MEAN")) GMRF_SD_MEAN <- -1
-if (!exists("GMRF_SD_SD")) GMRF_SD_SD <- 0
-if (!exists("GMRF_PSI_MEAN")) GMRF_PSI_MEAN <- -1
-if (!exists("GMRF_PSI_SD")) GMRF_PSI_SD <- 0
-GMRF_HIER <- (GMRF_SD_SD > 0)
-# stationary AR(1) alternative, on log lambda and log turnover rather than log mu
-if (!exists("OU_PHI")) OU_PHI <- -1
-if (!exists("TMEAN")) TMEAN <- 0
-if (!exists("TSD")) TSD <- 0.3
-OU <- (OU_PHI >= 0)
-# an aux file written before truncation existed does not set this
-if (!exists("PRESENT")) PRESENT <- 0
-# an aux file written before thinning existed does not set this
+# the rate prior and its guards live in one place, so the arms cannot drift
+source(BINDIR + "/rates-prior.Rev")
 if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
 
-if (SKYLINE) {
-    timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
-    n_int <- timeline.size() + 1
-    if (OU) {
-        # AR(1) on log lambda, log turnover and log psi, stationary at the batch's sds.
-        # mu is reconstructed as lambda * turnover, so net diversification stays tied to
-        # lambda instead of drifting independently.
-        il <- LSD * sqrt(1 - OU_PHI^2)
-        it <- TSD * sqrt(1 - OU_PHI^2)
-        ip <- PSD * sqrt(1 - OU_PHI^2)
-        log_lambda[1] ~ dnNormal(LMEAN, LSD)
-        log_turn[1] ~ dnNormal(TMEAN, TSD)
-        log_psi[1] ~ dnNormal(PMEAN, PSD)
-        for (i in 2:n_int) {
-            log_lambda[i] ~ dnNormal(LMEAN + OU_PHI * (log_lambda[i-1] - LMEAN), il)
-            log_turn[i] ~ dnNormal(TMEAN + OU_PHI * (log_turn[i-1] - TMEAN), it)
-            log_psi[i] ~ dnNormal(PMEAN + OU_PHI * (log_psi[i-1] - PMEAN), ip)
-        }
-        for (i in 1:n_int) {
-            moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_turn[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_psi[i], delta=0.2, weight=1) )
-            lambda[i] := exp(log_lambda[i])
-            mu[i] := exp(log_lambda[i] + log_turn[i])
-            psi[i] := exp(log_psi[i])
-        }
-    } else if (GMRF_SD > 0 || GMRF_HIER) {
-        # The walk width is either fixed by the batch or, in the hierarchical variant,
-        # drawn per replicate from the same lognormal the simulator used. It has to be
-        # estimated here for the same reason the walk itself is: the ranks are
-        # non-uniform by construction if the fitted prior is not the generating one.
-        if (GMRF_HIER) {
-            gmrf_sd_rates ~ dnLognormal(GMRF_SD_MEAN, GMRF_SD_SD)
-            gmrf_sd_psi ~ dnLognormal(GMRF_PSI_MEAN, GMRF_PSI_SD)
-            moves.append( mvScale(gmrf_sd_rates, lambda=0.5, weight=2) )
-            moves.append( mvScale(gmrf_sd_psi, lambda=0.5, weight=2) )
-        } else {
-            gmrf_sd_rates <- GMRF_SD
-            gmrf_sd_psi <- GMRF_SD
-        }
-        # order-1 GMRF on the log rates, anchored at the present and walking back through time.
-        # The simulator draws from this same walk, or the ranks are non-uniform by construction.
-        log_lambda[1] ~ dnNormal(LMEAN, LSD)
-        log_mu[1] ~ dnNormal(MMEAN, MSD)
-        log_psi[1] ~ dnNormal(PMEAN, PSD)
-        for (i in 2:n_int) {
-            log_lambda[i] ~ dnNormal(log_lambda[i-1], gmrf_sd_rates)
-            log_mu[i] ~ dnNormal(log_mu[i-1], gmrf_sd_rates)
-            log_psi[i] ~ dnNormal(log_psi[i-1], gmrf_sd_psi)
-        }
-        for (i in 1:n_int) {
-            moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_mu[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_psi[i], delta=0.2, weight=1) )
-            lambda[i] := exp(log_lambda[i])
-            mu[i] := exp(log_mu[i])
-            psi[i] := exp(log_psi[i])
-        }
-    } else {
-    for (i in 1:n_int) {
-        lambda[i] ~ dnLognormal(LMEAN, LSD)
-        moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
-        mu[i] ~ dnLognormal(MMEAN, MSD)
-        moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
-        psi[i] ~ dnLognormal(PMEAN, PSD)
-        moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
-    }
-    }
-} else {
-    lambda ~ dnLognormal(LMEAN, LSD)
-    mu ~ dnLognormal(MMEAN, MSD)
-    psi ~ dnLognormal(PMEAN, PSD)
-    moves.append( mvScale(lambda, weight=3) )
-    moves.append( mvScale(mu, weight=3) )
-    moves.append( mvScale(psi, weight=3) )
-}
 
 # uniform is the simulator's own age draw, U(AGE_MIN, AGE_MAX). exponential is PyRate's:
 # rate and lower truncation both the oldest observed first appearance, no upper bound.
