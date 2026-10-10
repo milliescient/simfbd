@@ -13,12 +13,22 @@ if (!exists("GMRF_SD_SD")) GMRF_SD_SD <- 0
 if (!exists("GMRF_PSI_MEAN")) GMRF_PSI_MEAN <- -1
 if (!exists("GMRF_PSI_SD")) GMRF_PSI_SD <- 0
 GMRF_HIER <- (GMRF_SD_SD > 0)
-# stationary OU alternative, on log lambda and log turnover rather than log mu. The mean
-# reversion is a rate per Myr, so the prior does not depend on how finely the span is cut.
+# Stationary OU alternative, on log lambda and log turnover rather than log mu. The
+# correlation is set per unit time, not per interval, so the prior does not depend on how
+# finely the span is cut. It is parameterised by the correlation at a fixed reference lag
+# OU_DREF in Myr: correlation at lag dt is phi_ref^(dt/OU_DREF).
+#
+# OU_PHI_A/B estimates that correlation, which lets the field shrink to constant rates
+# (phi_ref -> 1, every interval sharing one level) or to independent rates (phi_ref -> 0)
+# according to the data. OU_THETA instead pins it. A batch sets one or the other.
+if (!exists("OU_DREF")) OU_DREF <- 1.5
+if (!exists("OU_PHI_A")) OU_PHI_A <- -1
+if (!exists("OU_PHI_B")) OU_PHI_B <- -1
 if (!exists("OU_THETA")) OU_THETA <- -1
 if (!exists("TMEAN")) TMEAN <- 0
 if (!exists("TSD")) TSD <- 0.3
-OU <- (OU_THETA > 0)
+OU_PHI_FREE <- (OU_PHI_A > 0)
+OU <- OU_PHI_FREE || (OU_THETA > 0)
 # the stationary prior's own hierarchy: a level per path and a stationary sd, both drawn per
 # replicate by the simulator and therefore estimated here
 if (!exists("LANCH")) LANCH <- 0
@@ -78,9 +88,19 @@ if (SKYLINE) {
         # midpoints. The simulator wrote these lags, so the two cannot disagree. The oldest
         # interval reaches the origin, so its lag is the one that is not INTERVAL_WIDTH.
         ou_lags <- readDataDelimitedFile(BATCHDIR + "/ou_lags.tsv")[1]
+        if (OU_PHI_FREE) {
+            phi_ref ~ dnBeta(OU_PHI_A, OU_PHI_B)
+            moves.append( mvBetaProbability(phi_ref, delta=2.0, weight=3) )
+            moves.append( mvSlide(phi_ref, delta=0.1, weight=2) )
+        } else {
+            phi_ref <- exp(-OU_THETA * OU_DREF)
+        }
+        # a power, not exp of a log, so nothing takes the log of a sampled quantity
         for (i in 1:(n_int - 1)) {
-            ou_phi[i] <- exp(-OU_THETA * ou_lags[i])
-            ou_mult[i] <- sqrt(1 - ou_phi[i]^2)
+            ou_phi[i] := phi_ref ^ (ou_lags[i] / OU_DREF)
+            # abs() is a cast, not a guard: phi_ref is a probability so 1 - phi^2 is in
+            # (0,1), but a deterministic Real will not match sqrt's RealPos argument.
+            ou_mult[i] := sqrt(abs(1 - ou_phi[i]^2))
         }
         log_lambda[1] ~ dnNormal(m_lambda, tau_rates)
         log_turn[1] ~ dnNormal(m_turnover, tau_rates)

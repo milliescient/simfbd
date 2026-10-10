@@ -112,7 +112,7 @@ rate_stats <- function(mf, ids, logs) {
   # are drawn per replicate and estimated, so their ranks have to be uniform too, or the
   # hyperprior is not what was drawn.
   for (h in c("gmrf_sd_rates", "gmrf_sd_psi",
-              "m_lambda", "m_turnover", "m_psi", "tau_rates", "tau_psi")) {
+              "m_lambda", "m_turnover", "m_psi", "tau_rates", "tau_psi", "phi_ref")) {
     if (h %in% names(probe)) rates <- c(rates, h)
   }
 

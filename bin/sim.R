@@ -183,12 +183,26 @@ GMRF_SD <- cfg_opt("GMRF_SD", 0)
 # lambda - mu compounding into clades that trip the MAX_LINEAGES screen. Measured, that
 # screen fires on 18% of random-walk draws and effectively none of these.
 #
-# OU_THETA is the mean reversion per Myr, so the prior is a property of the timeline and
-# not of the grid. Correlation at lag dt is exp(-OU_THETA * dt).
+# The correlation is set per unit time, not per interval, so the prior is a property of the
+# timeline and not of the grid. It is parameterised by the correlation at a fixed reference
+# lag OU_DREF in Myr, which is bounded in (0,1) and is the scale the data informs, rather
+# than by the mean reversion itself. Correlation at lag dt is OU_PHI_REF^(dt/OU_DREF).
+#
+# OU_PHI_A/B > 0 draws that correlation per replicate from a Beta, so the field can shrink to
+# constant rates (phi -> 1, every interval sharing one level) or to independent rates
+# (phi -> 0) according to the data. OU_THETA instead pins it, which is what the control batch
+# did. Exactly one of the two.
+OU_DREF  <- cfg_opt("OU_DREF", 1.5)
+OU_PHI_A <- cfg_opt("OU_PHI_A", NA)
+OU_PHI_B <- cfg_opt("OU_PHI_B", NA)
 OU_THETA <- cfg_opt("OU_THETA", NA)
+OU_PHI_FREE <- !is.na(OU_PHI_A)
+if (OU_PHI_FREE && !is.na(OU_THETA))
+  stop("set OU_PHI_A/B or OU_THETA, not both")
+if (OU_PHI_FREE && is.na(OU_PHI_B)) stop("OU_PHI_A set without OU_PHI_B")
 TMEAN  <- cfg_opt("TMEAN", 0)
 TSD    <- cfg_opt("TSD", 0.3)
-OU <- !is.na(OU_THETA)
+OU <- OU_PHI_FREE || !is.na(OU_THETA)
 # The stationary prior's own hierarchy, and the two things it has to do at once. The MEAN of
 # each path is drawn per replicate, which sweeps regimes ACROSS replicates, and the
 # stationary sd is drawn per replicate, which varies rates WITHIN one. Both are parameters
@@ -210,7 +224,7 @@ OU_PSI_MEAN <- cfg_opt("OU_PSI_MEAN", NA)
 OU_PSI_SD   <- cfg_opt("OU_PSI_SD", 0)
 OU_HIER <- !is.na(OU_SD_MEAN)
 if (OU_HIER && is.na(OU_PSI_MEAN)) stop("OU_SD_MEAN set without OU_PSI_MEAN")
-if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_THETA")
+if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_PHI_A/B or OU_THETA")
 GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
 GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
 GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
@@ -244,17 +258,19 @@ cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 OU_WIDTHS <- c(rep(INTERVAL_WIDTH, NINTERVALS - 1),
                (AGE_MIN + AGE_MAX) / 2 - PRESENT - INTERVAL_WIDTH * (NINTERVALS - 1))
 OU_LAGS <- diff(cumsum(OU_WIDTHS) - OU_WIDTHS / 2)
-if (OU) {
-  if (OU_WIDTHS[NINTERVALS] <= 0)
-    stop("the grid spans past the mean age, so the oldest interval has no width")
-  OU_PHI_VEC <- exp(-OU_THETA * OU_LAGS)
-}
+if (OU && OU_WIDTHS[NINTERVALS] <= 0)
+  stop("the grid spans past the mean age, so the oldest interval has no width")
 
-# One OU path on the log scale, youngest interval first, sampled on an irregular grid.
-ou_path <- function(m, tau, n) {
+# The per-lag correlations implied by one reference-lag correlation. Equal to
+# exp(-theta * lag) with theta = -log(phi_ref)/OU_DREF, written as a power so no logs are
+# taken of a sampled quantity.
+ou_phis <- function(phi_ref) phi_ref^(OU_LAGS / OU_DREF)
+
+# One OU path on the log scale, youngest interval first, on an irregular grid.
+ou_path <- function(m, tau, n, phis) {
   x <- numeric(n); x[1] <- rnorm(1, m, tau)
   if (n > 1) for (i in 2:n) {
-    phi <- OU_PHI_VEC[i - 1]
+    phi <- phis[i - 1]
     x[i] <- m + phi * (x[i - 1] - m) + rnorm(1, 0, tau * sqrt(1 - phi^2))
   }
   x
@@ -282,6 +298,7 @@ truth_of <- function(th, lambda, mu, psi, age) {
     if (TANCH > 0) v <- c(v, m_turnover = th$m_turnover)
     if (PANCH > 0) v <- c(v, m_psi = th$m_psi)
     if (OU_HIER)   v <- c(v, tau_rates = th$tau_rates, tau_psi = th$tau_psi)
+    if (OU_PHI_FREE) v <- c(v, phi_ref = th$phi_ref)
   } else if (GMRF_HIER) {
     v <- c(v, gmrf_sd_rates = th$sd_rates, gmrf_sd_psi = th$sd_psi)
   }
@@ -297,14 +314,17 @@ draw_theta <- function(lambda_a) {
     m_lambda   <- if (LANCH > 0) rnorm(1, LMEAN, LANCH) else LMEAN
     m_turnover <- if (TANCH > 0) rnorm(1, TMEAN, TANCH) else TMEAN
     m_psi      <- if (PANCH > 0) rnorm(1, PMEAN, PANCH) else PMEAN
+    # the correlation at the reference lag, drawn per replicate when it is free
+    phi_ref <- if (OU_PHI_FREE) rbeta(1, OU_PHI_A, OU_PHI_B) else exp(-OU_THETA * OU_DREF)
+    phis <- ou_phis(phi_ref)
     # paleobuddy wants oldest-first, so reverse once, after lambda and mu are assembled
-    ll <- ou_path(m_lambda, tau_rates, NINTERVALS)
-    lt <- ou_path(m_turnover, tau_rates, NINTERVALS)
-    lp <- ou_path(m_psi, tau_psi, NINTERVALS)
+    ll <- ou_path(m_lambda, tau_rates, NINTERVALS, phis)
+    lt <- ou_path(m_turnover, tau_rates, NINTERVALS, phis)
+    lp <- ou_path(m_psi, tau_psi, NINTERVALS, phis)
     return(list(age = runif(1, AGE_MIN, AGE_MAX),
                 lambda = rev(exp(ll)), mu = rev(exp(ll + lt)), psi = rev(exp(lp)),
                 m_lambda = m_lambda, m_turnover = m_turnover, m_psi = m_psi,
-                tau_rates = tau_rates, tau_psi = tau_psi,
+                tau_rates = tau_rates, tau_psi = tau_psi, phi_ref = phi_ref,
                 lambda_a = if (lambda_a > 0) rlnorm(1, m_lambda, tau_rates) else lambda_a,
                 report_prob = if (REPORT_PROB < 1) runif(1) else 1))
   }
@@ -935,8 +955,9 @@ if (!exists("sim_functions_only")) {
                paste0(reps_dir, "screened.tsv"))
   }
   if (OU) {
-    keys <- c(keys, "OU_THETA", "LANCH", "TANCH", "PANCH")
-    vals <- c(vals, OU_THETA, LANCH, TANCH, PANCH)
+    keys <- c(keys, "OU_DREF", "OU_PHI_A", "OU_PHI_B", "OU_THETA",
+              "LANCH", "TANCH", "PANCH")
+    vals <- c(vals, OU_DREF, OU_PHI_A, OU_PHI_B, OU_THETA, LANCH, TANCH, PANCH)
     if (OU_HIER) {
       keys <- c(keys, "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD")
       vals <- c(vals, OU_SD_MEAN, OU_SD_SD, OU_PSI_MEAN, OU_PSI_SD)
