@@ -171,9 +171,10 @@ GMRF_SD <- cfg_opt("GMRF_SD", 0)
 #
 # lambda and mu carry the through-time signal; psi gets its own, usually narrower, so that a
 # replicate's sampling regime stays a meaningful label to stratify on.
-# Stationary alternative to the random walk: AR(1) on log lambda, log turnover and log psi,
-# with lag-1 autocorrelation OU_PHI and stationary sds LSD, TSD, PSD. Setting OU_PHI switches
-# it on and GMRF_SD is then ignored.
+# Stationary alternative to the random walk: an OU process on log lambda, log turnover and
+# log psi, sampled at the interval midpoints, with mean-reversion half-life OU_HALFLIFE in
+# Myr and stationary sds LSD, TSD, PSD. Setting OU_HALFLIFE switches it on and GMRF_SD is
+# then ignored.
 #
 # Two reasons to prefer it. A random walk's marginal prior widens with distance from the
 # anchor, so the oldest interval gets a far vaguer prior than the youngest; an AR(1) is
@@ -182,20 +183,22 @@ GMRF_SD <- cfg_opt("GMRF_SD", 0)
 # lambda - mu compounding into clades that trip the MAX_LINEAGES screen. Measured, that
 # screen fires on 18% of random-walk draws and effectively none of these.
 #
-# phi = 0 recovers the independent lognormal draw the first SBC used.
-OU_PHI <- cfg_opt("OU_PHI", NA)
+# OU_HALFLIFE is in Myr, so the prior is a property of the timeline and not of the grid.
+OU_HALFLIFE <- cfg_opt("OU_HALFLIFE", NA)
 TMEAN  <- cfg_opt("TMEAN", 0)
 TSD    <- cfg_opt("TSD", 0.3)
-OU <- !is.na(OU_PHI)
+OU <- !is.na(OU_HALFLIFE)
+OU_THETA <- if (OU) log(2) / OU_HALFLIFE else NA
 # The stationary prior's own hierarchy, and the two things it has to do at once. The MEAN of
 # each path is drawn per replicate, which sweeps regimes ACROSS replicates, and the
 # stationary sd is drawn per replicate, which varies rates WITHIN one. Both are parameters
 # the analysis estimates, so both are truth and both have to rank uniformly.
 #
-# phi stays fixed. It is the one hyperparameter whose meaning is tied to the grid, since an
-# AR(1) with lag-1 correlation phi on intervals of width dt is an OU process with
-# mean-reversion -log(phi)/dt, so estimating it on 8 intervals would be estimating a
-# property of the discretisation. Fixing it pins the process to the timeline we chose.
+# The mean reversion is fixed, and is given as a half-life in Myr rather than as a lag-1
+# correlation. A correlation per cell would make the prior a property of the grid: refining
+# the grid at a fixed span would change the process. A half-life does not, so the interval
+# count is a resolution choice and nothing else. Estimating it would be estimating a
+# property of the discretisation, so it stays fixed.
 #
 # The intercept sds at 0 keep the fixed mean an older batch drew with.
 LANCH <- cfg_opt("LANCH", 0)
@@ -207,7 +210,7 @@ OU_PSI_MEAN <- cfg_opt("OU_PSI_MEAN", NA)
 OU_PSI_SD   <- cfg_opt("OU_PSI_SD", 0)
 OU_HIER <- !is.na(OU_SD_MEAN)
 if (OU_HIER && is.na(OU_PSI_MEAN)) stop("OU_SD_MEAN set without OU_PSI_MEAN")
-if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_PHI")
+if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_HALFLIFE")
 GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
 GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
 GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
@@ -234,11 +237,26 @@ cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 # call this, so they cannot diverge.
 # Returned oldest-first, the order paleobuddy's forward shifts need. The walk itself runs
 # from the present backwards, so index 1 of the walk is the youngest interval.
-# One AR(1) path on the log scale, youngest interval first.
-ou_path <- function(m, tau, phi, n) {
+# Lags between interval midpoints, in Myr, youngest first. The oldest interval runs from the
+# last breakpoint to the origin, so its width is taken at the age prior's mean: making it the
+# replicate's own age would put the origin in the rate prior, and the breakpoints are kept
+# clear of age for that reason. Measured, the two differ by 0.02 points of refusal rate.
+OU_WIDTHS <- c(rep(INTERVAL_WIDTH, NINTERVALS - 1),
+               (AGE_MIN + AGE_MAX) / 2 - PRESENT - INTERVAL_WIDTH * (NINTERVALS - 1))
+OU_LAGS <- diff(cumsum(OU_WIDTHS) - OU_WIDTHS / 2)
+if (OU) {
+  if (OU_WIDTHS[NINTERVALS] <= 0)
+    stop("the grid spans past the mean age, so the oldest interval has no width")
+  OU_PHI_VEC <- exp(-OU_THETA * OU_LAGS)
+}
+
+# One OU path on the log scale, youngest interval first, sampled on an irregular grid.
+ou_path <- function(m, tau, n) {
   x <- numeric(n); x[1] <- rnorm(1, m, tau)
-  innov <- tau * sqrt(1 - phi^2)
-  if (n > 1) for (i in 2:n) x[i] <- m + phi * (x[i - 1] - m) + rnorm(1, 0, innov)
+  if (n > 1) for (i in 2:n) {
+    phi <- OU_PHI_VEC[i - 1]
+    x[i] <- m + phi * (x[i - 1] - m) + rnorm(1, 0, tau * sqrt(1 - phi^2))
+  }
   x
 }
 
@@ -280,9 +298,9 @@ draw_theta <- function(lambda_a) {
     m_turnover <- if (TANCH > 0) rnorm(1, TMEAN, TANCH) else TMEAN
     m_psi      <- if (PANCH > 0) rnorm(1, PMEAN, PANCH) else PMEAN
     # paleobuddy wants oldest-first, so reverse once, after lambda and mu are assembled
-    ll <- ou_path(m_lambda, tau_rates, OU_PHI, NINTERVALS)
-    lt <- ou_path(m_turnover, tau_rates, OU_PHI, NINTERVALS)
-    lp <- ou_path(m_psi, tau_psi, OU_PHI, NINTERVALS)
+    ll <- ou_path(m_lambda, tau_rates, NINTERVALS)
+    lt <- ou_path(m_turnover, tau_rates, NINTERVALS)
+    lp <- ou_path(m_psi, tau_psi, NINTERVALS)
     return(list(age = runif(1, AGE_MIN, AGE_MAX),
                 lambda = rev(exp(ll)), mu = rev(exp(ll + lt)), psi = rev(exp(lp)),
                 m_lambda = m_lambda, m_turnover = m_turnover, m_psi = m_psi,
@@ -835,6 +853,13 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
                 paste0(base_dir, "/true_vals.tsv"),
                 col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
   }
+
+  # The inference reads these rather than rederiving them, so the two cannot disagree about
+  # the prior's correlation structure.
+  if (OU) {
+    write.table(t(OU_LAGS), paste0(base_dir, "/ou_lags.tsv"),
+                col.names = FALSE, row.names = FALSE, quote = FALSE, sep = "\t")
+  }
   
   # make numbers into a data frame
   nums <- data.frame(n_sp = n_sp, n_sampled = n_sampled,
@@ -910,8 +935,8 @@ if (!exists("sim_functions_only")) {
                paste0(reps_dir, "screened.tsv"))
   }
   if (OU) {
-    keys <- c(keys, "OU_PHI", "LANCH", "TANCH", "PANCH")
-    vals <- c(vals, OU_PHI, LANCH, TANCH, PANCH)
+    keys <- c(keys, "OU_HALFLIFE", "LANCH", "TANCH", "PANCH")
+    vals <- c(vals, OU_HALFLIFE, LANCH, TANCH, PANCH)
     if (OU_HIER) {
       keys <- c(keys, "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD")
       vals <- c(vals, OU_SD_MEAN, OU_SD_SD, OU_PSI_MEAN, OU_PSI_SD)

@@ -1,9 +1,9 @@
 # The prior on the skyline rates, shared by every analysis so that no two arms of a
 # comparison can drift apart. dnFBDRP, dnBDS and anything else source this file.
 #
-# Three arms, chosen by the batch config: a stationary AR(1) when OU_PHI is set, an order-1
-# GMRF when GMRF_SD or its hyperprior is set, and independent lognormals otherwise. The
-# simulator draws from whichever one is configured, through the same keys.
+# Three arms, chosen by the batch config: a stationary OU process when OU_HALFLIFE is set, an
+# order-1 GMRF when GMRF_SD or its hyperprior is set, and independent lognormals otherwise.
+# The simulator draws from whichever one is configured, through the same keys.
 
 # an aux file written before the GMRF existed does not set this
 if (!exists("GMRF_SD")) GMRF_SD <- 0
@@ -13,11 +13,12 @@ if (!exists("GMRF_SD_SD")) GMRF_SD_SD <- 0
 if (!exists("GMRF_PSI_MEAN")) GMRF_PSI_MEAN <- -1
 if (!exists("GMRF_PSI_SD")) GMRF_PSI_SD <- 0
 GMRF_HIER <- (GMRF_SD_SD > 0)
-# stationary AR(1) alternative, on log lambda and log turnover rather than log mu
-if (!exists("OU_PHI")) OU_PHI <- -1
+# stationary OU alternative, on log lambda and log turnover rather than log mu. The mean
+# reversion is a half-life in Myr, so the prior does not depend on how finely the span is cut.
+if (!exists("OU_HALFLIFE")) OU_HALFLIFE <- -1
 if (!exists("TMEAN")) TMEAN <- 0
 if (!exists("TSD")) TSD <- 0.3
-OU <- (OU_PHI >= 0)
+OU <- (OU_HALFLIFE > 0)
 # the stationary prior's own hierarchy: a level per path and a stationary sd, both drawn per
 # replicate by the simulator and therefore estimated here
 if (!exists("LANCH")) LANCH <- 0
@@ -73,16 +74,25 @@ if (SKYLINE) {
             tau_rates <- LSD
             tau_psi <- PSD
         }
-        # the innovation sd that makes the marginal variance stationary, deterministic in tau
-        il := tau_rates * sqrt(1 - OU_PHI^2)
-        ip := tau_psi * sqrt(1 - OU_PHI^2)
+        # Correlation between neighbouring intervals, from the lag in Myr between their
+        # midpoints. The simulator wrote these lags, so the two cannot disagree. The oldest
+        # interval reaches the origin, so its lag is the one that is not INTERVAL_WIDTH.
+        ou_lags <- readDataDelimitedFile(BATCHDIR + "/ou_lags.tsv")[1]
+        ou_theta <- ln(2) / OU_HALFLIFE
+        for (i in 1:(n_int - 1)) {
+            ou_phi[i] <- exp(-ou_theta * ou_lags[i])
+            ou_mult[i] <- sqrt(1 - ou_phi[i]^2)
+        }
         log_lambda[1] ~ dnNormal(m_lambda, tau_rates)
         log_turn[1] ~ dnNormal(m_turnover, tau_rates)
         log_psi[1] ~ dnNormal(m_psi, tau_psi)
         for (i in 2:n_int) {
-            log_lambda[i] ~ dnNormal(m_lambda + OU_PHI * (log_lambda[i-1] - m_lambda), il)
-            log_turn[i] ~ dnNormal(m_turnover + OU_PHI * (log_turn[i-1] - m_turnover), il)
-            log_psi[i] ~ dnNormal(m_psi + OU_PHI * (log_psi[i-1] - m_psi), ip)
+            # the innovation sd that keeps the marginal variance stationary at this lag
+            il[i-1] := tau_rates * ou_mult[i-1]
+            ip[i-1] := tau_psi * ou_mult[i-1]
+            log_lambda[i] ~ dnNormal(m_lambda + ou_phi[i-1] * (log_lambda[i-1] - m_lambda), il[i-1])
+            log_turn[i] ~ dnNormal(m_turnover + ou_phi[i-1] * (log_turn[i-1] - m_turnover), il[i-1])
+            log_psi[i] ~ dnNormal(m_psi + ou_phi[i-1] * (log_psi[i-1] - m_psi), ip[i-1])
         }
         for (i in 1:n_int) {
             moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
