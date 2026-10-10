@@ -6,5 +6,8 @@ sims/
 # analysis outputs, written to the repo root by bin/bias.R
 *.rds
 
+# driver logs from exploratory sweeps, regenerable from bin/ and the configs
+*.log
+
 *.DS_Store
 paleobuddy_install.log
