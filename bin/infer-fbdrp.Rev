@@ -15,6 +15,12 @@ moves = VectorMoves()
 
 # an aux file written before the GMRF existed does not set this
 if (!exists("GMRF_SD")) GMRF_SD <- 0
+# the hierarchical variant draws the walk width per replicate, so estimate it here
+if (!exists("GMRF_SD_MEAN")) GMRF_SD_MEAN <- -1
+if (!exists("GMRF_SD_SD")) GMRF_SD_SD <- 0
+if (!exists("GMRF_PSI_MEAN")) GMRF_PSI_MEAN <- -1
+if (!exists("GMRF_PSI_SD")) GMRF_PSI_SD <- 0
+GMRF_HIER <- (GMRF_SD_SD > 0)
 # an aux file written before truncation existed does not set this
 if (!exists("PRESENT")) PRESENT <- 0
 # an aux file written before thinning existed does not set this
@@ -23,16 +29,29 @@ if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
     n_int <- timeline.size() + 1
-    if (GMRF_SD > 0) {
+    if (GMRF_SD > 0 || GMRF_HIER) {
+        # The walk width is either fixed by the batch or, in the hierarchical variant,
+        # drawn per replicate from the same lognormal the simulator used. It has to be
+        # estimated here for the same reason the walk itself is: the ranks are
+        # non-uniform by construction if the fitted prior is not the generating one.
+        if (GMRF_HIER) {
+            gmrf_sd_rates ~ dnLognormal(GMRF_SD_MEAN, GMRF_SD_SD)
+            gmrf_sd_psi ~ dnLognormal(GMRF_PSI_MEAN, GMRF_PSI_SD)
+            moves.append( mvScale(gmrf_sd_rates, lambda=0.5, weight=2) )
+            moves.append( mvScale(gmrf_sd_psi, lambda=0.5, weight=2) )
+        } else {
+            gmrf_sd_rates <- GMRF_SD
+            gmrf_sd_psi <- GMRF_SD
+        }
         # order-1 GMRF on the log rates, anchored at the present and walking back through time.
         # The simulator draws from this same walk, or the ranks are non-uniform by construction.
         log_lambda[1] ~ dnNormal(LMEAN, LSD)
         log_mu[1] ~ dnNormal(MMEAN, MSD)
         log_psi[1] ~ dnNormal(PMEAN, PSD)
         for (i in 2:n_int) {
-            log_lambda[i] ~ dnNormal(log_lambda[i-1], GMRF_SD)
-            log_mu[i] ~ dnNormal(log_mu[i-1], GMRF_SD)
-            log_psi[i] ~ dnNormal(log_psi[i-1], GMRF_SD)
+            log_lambda[i] ~ dnNormal(log_lambda[i-1], gmrf_sd_rates)
+            log_mu[i] ~ dnNormal(log_mu[i-1], gmrf_sd_rates)
+            log_psi[i] ~ dnNormal(log_psi[i-1], gmrf_sd_psi)
         }
         for (i in 1:n_int) {
             moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )

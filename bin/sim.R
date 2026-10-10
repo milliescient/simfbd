@@ -160,6 +160,23 @@ MIN_TAXA <- as.integer(cfg_opt("MIN_TAXA", 1))
 # Order-1 GMRF on the log rates: anchor at the present, random walk back through time. Unset
 # keeps the independent draw, so an older batch reproduces.
 GMRF_SD <- cfg_opt("GMRF_SD", 0)
+# Hierarchical variant: the walk's own standard deviation is drawn per replicate, so one batch
+# spans clades that vary a lot through time and clades that barely vary, and the analysis
+# estimates it. Setting GMRF_SD_MEAN switches this on, and GMRF_SD is then ignored.
+#
+# The hyperprior is lognormal on purpose. A heavy-tailed one puts real mass on walks steep
+# enough to trip the MAX_LINEAGES screen, and that screen is a function of theta alone, so it
+# truncates the prior the simulator draws from while the analysis keeps the untruncated one.
+# The ranks would be non-uniform for that reason alone.
+#
+# lambda and mu carry the through-time signal; psi gets its own, usually narrower, so that a
+# replicate's sampling regime stays a meaningful label to stratify on.
+GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
+GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
+GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
+GMRF_PSI_SD   <- cfg_opt("GMRF_PSI_SD", 0)
+GMRF_HIER <- !is.na(GMRF_SD_MEAN)
+if (GMRF_HIER && is.na(GMRF_PSI_MEAN)) stop("GMRF_SD_MEAN set without GMRF_PSI_MEAN")
 MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 # "record" makes MIN_TAXA and MAX_TAXA count every reported taxon, the survivors seen at the
 # present included; unset keeps the fossil-only count, so an older batch reproduces.
@@ -180,16 +197,19 @@ cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 # call this, so they cannot diverge.
 # Returned oldest-first, the order paleobuddy's forward shifts need. The walk itself runs
 # from the present backwards, so index 1 of the walk is the youngest interval.
-draw_rates <- function(m, s, n) {
-  if (GMRF_SD <= 0) return(rlnorm(n, m, s))
-  rev(exp(cumsum(c(rnorm(1, m, s), rnorm(n - 1, 0, GMRF_SD)))))
+draw_rates <- function(m, s, n, walk_sd = GMRF_SD) {
+  if (walk_sd <= 0) return(rlnorm(n, m, s))
+  rev(exp(cumsum(c(rnorm(1, m, s), rnorm(n - 1, 0, walk_sd)))))
 }
 
 draw_theta <- function(lambda_a) {
+  sd_rates <- if (GMRF_HIER) rlnorm(1, GMRF_SD_MEAN, GMRF_SD_SD) else GMRF_SD
+  sd_psi   <- if (GMRF_HIER) rlnorm(1, GMRF_PSI_MEAN, GMRF_PSI_SD) else GMRF_SD
   list(age    = runif(1, AGE_MIN, AGE_MAX),
-       lambda = draw_rates(LMEAN, LSD, NINTERVALS),
-       mu     = draw_rates(MMEAN, MSD, NINTERVALS),
-       psi    = draw_rates(PMEAN, PSD, NINTERVALS),
+       lambda = draw_rates(LMEAN, LSD, NINTERVALS, sd_rates),
+       mu     = draw_rates(MMEAN, MSD, NINTERVALS, sd_rates),
+       psi    = draw_rates(PMEAN, PSD, NINTERVALS, sd_psi),
+       sd_rates = sd_rates, sd_psi = sd_psi,
        lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a,
        report_prob = if (REPORT_PROB < 1) runif(1) else 1)
 }
@@ -368,6 +388,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     th <- draw_theta(lambda_a)
     age <<- th$age; tMax <<- th$age
     lambda <<- th$lambda; mu <<- th$mu; psi <<- th$psi; lambda_a <<- th$lambda_a
+    sd_rates <<- th$sd_rates; sd_psi <<- th$sd_psi
     lShifts <<- mShifts <<- pShifts <<- c(0, th$age - rev(cov_breaks))
     bins <<- cov_bins
   }
@@ -530,6 +551,8 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
   # paleobuddy indexes intervals oldest-first because its shifts run forward from the origin.
   # Everything downstream indexes them youngest-first, so reverse here, once.
   true_vals <- c(rev(lambda), rev(mu), rev(psi), age)
+  # the drawn walk widths are truth too, and what the comparison stratifies on
+  if (GMRF_HIER) true_vals <- c(true_vals, sd_rates, sd_psi)
   if (lambda_a > 0) true_vals <- append(true_vals, lambda_a, after = 3 * NINTERVALS)
   if (REPORT_PROB < 1) true_vals <- append(true_vals, report_prob, after = length(true_vals) - 1)
 
@@ -610,6 +633,7 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
       age <- th$age
       lambda <- th$lambda; mu <- th$mu; psi <- th$psi; lambda_a <- th$lambda_a
 
+      sd_rates <- th$sd_rates; sd_psi <- th$sd_psi
       # make rates list
       rates <- list(lambda = lambda,
                     mu = mu,
@@ -711,11 +735,13 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     tv_names <- c(paste0("lambda", 1:NINTERVALS), paste0("mu", 1:NINTERVALS),
                   paste0("psi", 1:NINTERVALS))
     has_rp <- REPORT_PROB < 1
-    if (ncol(true_vals) - 3 * NINTERVALS - 1 - as.integer(has_rp) > 0) {
+    n_sd <- if (GMRF_HIER) 2 else 0
+    if (ncol(true_vals) - 3 * NINTERVALS - 1 - as.integer(has_rp) - n_sd > 0) {
       tv_names <- c(tv_names, "lambda_a")
     }
     if (has_rp) tv_names <- c(tv_names, "report_prob")
     tv_names <- c(tv_names, "age")
+    if (GMRF_HIER) tv_names <- c(tv_names, "gmrf_sd_rates", "gmrf_sd_psi")
     colnames(true_vals) <- tv_names
     
     # save true_vals
