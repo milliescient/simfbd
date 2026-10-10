@@ -257,6 +257,9 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'batch_dir\t%s\n' "$BATCHDIR"
   printf 'batch_config_hash\t%s\n' "$BATCH_CFG_HASH"
   printf 'config_hash\t%s\n' "$RUN_CFG_HASH"
+  # the scoring needs it and must not have to guess; a batch predating the key is oldest-first
+  tvo="$(awk -F'\t' '$1=="true_vals_order"{print $2}' "$BATCH_MANIFEST" | head -1)"
+  printf 'true_vals_order\t%s\n' "${tvo:-oldest_first}"
   printf 'infer_script_hash\t%s\n' "$(hash_of "$TEMPLATE")"
   printf 'survivors\t%s\n' "$SURVIVORS"
   printf 'drop_present_only\t%s\n' "$DROP_PRESENT_ONLY"

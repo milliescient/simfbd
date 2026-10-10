@@ -67,14 +67,46 @@ pair_re <- "\\[ *[-0-9.eE+]+, *[-0-9.eE+]+ *\\]"
 
 post_burnin <- function(n) (round(n * 0.25) + 1):n
 
-# RevBayes numbers skyline intervals in the opposite direction from the simulator,
-# and SBC matches draws to true values by column name, so reverse the true tuples.
-reverse_skyline_index <- function(df, ni) {
+# sim.R has reversed each rate triple before writing since 2026-08-03, so a batch whose
+# manifest says youngest_first is already aligned to RevBayes. A batch with no such key
+# predates the change and holds true_vals oldest-first.
+truth_order_of <- function(mf) {
+  if (!is.null(mf$true_vals_order)) return(mf$true_vals_order)
+  f <- file.path(mf$batch_dir, "manifest.tsv")
+  if (!file.exists(f)) return("oldest_first")
+  m <- read.table(f, sep = "\t", header = FALSE, comment.char = "",
+                  col.names = c("key", "value"), colClasses = "character")
+  v <- m$value[m$key == "true_vals_order"]
+  if (length(v)) v[1] else "oldest_first"
+}
+
+align_skyline_index <- function(df, ni, order) {
+  if (identical(order, "youngest_first")) return(df)
   for (r in c("lambda", "mu", "psi")) {
     cols <- paste0(r, "[", seq_len(ni), "]")
     if (all(cols %in% colnames(df))) df[, cols] <- df[, rev(cols)]
   }
   df
+}
+
+# A wrong mapping is indistinguishable from a depth-dependent defect, and it has been wrong
+# in both directions, so check it against the data rather than trusting the key: a posterior
+# mean correlates better with its own truth column than with the mirrored one.
+check_alignment <- function(draws, true_vals, ni, ids) {
+  if (length(draws) < 10) return(invisible())
+  for (r in c("lambda", "mu", "psi")) {
+    cols <- paste0(r, "[", seq_len(ni), "]")
+    if (!all(cols %in% colnames(true_vals))) next
+    pm <- t(sapply(draws, function(d) colMeans(d[, cols, drop = FALSE])))
+    kept <- apply(pm, 2, function(x) all(is.finite(x) & x > 0))
+    cols <- cols[kept]; pm <- pm[, kept, drop = FALSE]
+    tr <- log(true_vals[ids, cols, drop = FALSE])
+    fit <- mean(mapply(function(a, b) cor(log(pm[, a]), tr[[b]]), cols, cols))
+    mir <- mean(mapply(function(a, b) cor(log(pm[, a]), tr[[b]]), cols, rev(cols)))
+    if (mir > fit)
+      cat(sprintf("   WARNING: %s truth looks mirrored (corr %.2f against %.2f reversed);",
+                  r, fit, mir), "check true_vals_order\n")
+  }
 }
 
 results_obj <- function(draws) {
@@ -125,7 +157,9 @@ rate_stats <- function(mf, ids, logs) {
   true_vals <- read.table(file.path(sim_dir, "true_vals.tsv"), header = TRUE)
   colnames(true_vals) <- gsub("(\\D+)(\\d+)$", "\\1[\\2]", colnames(true_vals))
   names(true_vals)[names(true_vals) == "age"] <- "org"
-  true_vals <- reverse_skyline_index(true_vals, as.integer(mf$NINTERVALS))
+  ni <- as.integer(mf$NINTERVALS)
+  true_vals <- align_skyline_index(true_vals, ni, truth_order_of(mf))
+  check_alignment(draws, true_vals, ni, ids)
   stats_for(draws, posterior::as_draws_matrix(true_vals[ids, rates]))
 }
 
