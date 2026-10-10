@@ -62,7 +62,8 @@ other three truncate the prior, and the design is chosen to make them fire rarel
 truncation of fraction `e` shifts a mean rank by about `e/2` against a standard error of
 `0.289/sqrt(n)`, which is 0.0029 at n = 10000, so `e` has to stay near or below 0.5%.
 
-Measured at the settings above, over 11,013 draws: **0.45% screened, 0 timeouts**. Raising
+Measured at the settings above, over the 111,811 draws the 10,000-replicate batch took:
+**0.446% screened, 0 timeouts**, against 0.45% in a 400-replicate pilot. Raising
 `MAX_LINEAGES` is what buys this, since it converts theta rejections into free data
 rejections: 400 refuses 1.87%, 4000 refuses 0.81%, 20000 refuses 0.56% at the wider
 `LANCH=0.4`, and 200000 starts producing timeouts instead. Every batch records
@@ -100,6 +101,20 @@ three-timer estimator has the coverage it needs.
 a calibration arm: its origin prior is not the generating one, so its ranks are non-uniform
 by construction and it has to be read as accuracy against known truth, stratified by psi.
 `bds_time` is the control that separates a biased estimator from a miscalibrated likelihood.
+
+## Chain length
+
+100M generations, printing every 50,000, which retains 1500 draws after warmup. Measured on
+40 replicates at the final prior: median per-replicate minimum ESS 738, 2 of 40 below 200,
+and the worst coordinate is `lambda[1]` in every one of them. The GMRF's figure at the same
+length was 873, so the five estimated hyperparameters cost about 15% in the worst
+coordinate rather than an order of magnitude, and `tau_rates` and `tau_psi` are not
+themselves the bottleneck.
+
+Those 1500 draws are autocorrelated, so summarize with `SBC_THIN_RANKS=2`. Thinning the
+ranks is the fix for the tail-ESS warning, not a longer chain, and it costs nothing. If the
+low-ESS replicates have to be dropped, ESS is a function of the record and the sampler seed
+alone, so that filter is free in the sense of the table above.
 
 ## One binary
 
