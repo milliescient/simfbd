@@ -8,10 +8,18 @@ classical paleontological rate estimators on the same data. Every arm reads the 
 
 ## The prior
 
-A stationary AR(1) on the log rates, which on an equal-width grid is an OU process observed
-at the interval boundaries: with lag-1 correlation `phi` on intervals of width `dt` the
-mean reversion is `-log(phi)/dt`. `phi` is fixed, because estimating it on eight intervals
-would be estimating a property of the discretisation rather than of the process.
+A stationary OU process on the log rates, sampled at the interval midpoints. The mean
+reversion is given as a half-life in Myr and is fixed, because estimating it on eight
+intervals would be estimating a property of the discretisation rather than of the process.
+
+It is specified per unit time and not per interval, and that is the point. A lag-1
+correlation attached to the cells makes the prior a property of the grid: refine the grid at
+a fixed span and you get a different process, with more accumulated variance. Measured
+against the expected-clade screen, a walk with variance per cell refuses 0.92% of draws at
+four intervals and 19.80% at sixty-four, while the same walk with variance per Myr holds at
+4.30% and 5.12%. Neither is usable, but only the first gets worse the finer you cut. The
+same applies to a stationary field, and specifying the half-life in Myr is what makes the
+interval count a resolution choice and nothing else.
 
 ```sh
 NINTERVALS=8
@@ -24,7 +32,7 @@ BIN_WIDTH=1.5; BIN_MAX=36
 LAMBDA_A=0
 ORIGIN_SAMPLED=false
 
-OU_PHI=0.5                  # the one hyperparameter that stays fixed
+OU_HALFLIFE=1.5             # Myr, the one hyperparameter that stays fixed
 LANCH=0.25                  # across-replicate level of log lambda
 TMEAN=0; TANCH=0.2          # turnover, centred on mu = lambda
 PANCH=0.85                  # across-replicate level of log psi: the sampling sweep
@@ -47,6 +55,55 @@ Mean levels and within-replicate sds are drawn per replicate and estimated, so t
 truth like any other parameter: `m_lambda`, `m_turnover`, `m_psi`, `tau_rates`, `tau_psi`
 appear in `true_vals.tsv` and are scored for rank uniformity alongside the rates.
 
+## The grid, and why it has eight cells
+
+There are two grids and they are different objects. The **rate grid** is the seven
+breakpoints at 1.5 Myr intervals back from the present, giving eight rate intervals. The
+**counting grid**, `BIN_WIDTH=1.5` out to `BIN_MAX=36`, is what the occurrence record is
+binned into for the classical estimators. They share a width here and nothing else.
+
+The rate grid is not equal-width. The breakpoints are fixed and do not scale with age,
+because the analysis estimates the origin and anything it reads that scales with age hands
+it the answer. The origin falls between 15 and 21, so the oldest interval runs from 10.5 to
+wherever the origin is and is 4.5 to 10.5 Myr wide, against 1.5 for the other seven.
+
+The half-life handles that directly. The lags between interval midpoints are 1.5 Myr six
+times and then 4.5, so the correlations are 0.5 six times and then 0.125: the oldest cell is
+far from its neighbour and is coupled to it weakly, which is what an OU process on the
+timeline says. The simulator writes those lags to `ou_lags.tsv` and the inference reads
+them, so the two cannot disagree about the prior.
+
+The oldest cell's width is taken at the age prior's mean rather than at each replicate's own
+age. Using the replicate's age would be exact, but it would put the origin into the rate
+prior, and this model has a history of origin couplings breaking calibration. Measured over
+40,000 draws, the two differ by 0.015 points of refusal rate, so the coupling buys nothing.
+
+**Eight cells, not more.** The prior is no longer a reason to choose otherwise, since the
+half-life makes the count a pure resolution choice. The data is the reason. Measured over
+400 replicates of the record:
+
+| | |
+|---|---|
+| reported taxa per replicate | 17 median, 11 to 36 |
+| occupied bins per replicate | 10 median |
+| taxa per occupied bin | 3 median, 1 at p10 |
+| bins holding exactly one taxon | 31% |
+| three-timer taxa per replicate | 2 median, 0 at p10 |
+| replicates with no three-timer at all | 33% |
+
+The three-timer estimator needs a taxon sampled in three consecutive bins, and a third of
+replicates already supply none. Halving the width would leave that arm measuring nothing,
+and would double the rate parameters against a chain whose worst-mixing coordinate is
+already the oldest interval. Because the prior is now grid-invariant, a finer run is
+interpretable as the same process at higher resolution, so it stays available as a
+robustness check rather than as the design.
+
+A fully regular grid is also available and was tested: `dnFBDRP` accepts breakpoints older
+than the origin, so a 1.5 Myr grid out to `AGE_MAX` with fourteen cells initialises and
+runs. It is not used, because it puts the origin in the interior of the grid where it
+crosses breakpoints, which is an untested regime for this likelihood and would need its own
+validation to buy nothing the half-life does not already give.
+
 ## Which filters are free and which are not
 
 | filter | function of | effect |
@@ -62,8 +119,8 @@ other three truncate the prior, and the design is chosen to make them fire rarel
 truncation of fraction `e` shifts a mean rank by about `e/2` against a standard error of
 `0.289/sqrt(n)`, which is 0.0029 at n = 10000, so `e` has to stay near or below 0.5%.
 
-Measured at the settings above, over the 111,811 draws the 10,000-replicate batch took:
-**0.446% screened, 0 timeouts**, against 0.45% in a 400-replicate pilot. Raising
+Under the per-cell parameterisation, over the 111,811 draws its 10,000-replicate batch
+took: **0.446% screened, 0 timeouts**. Being re-measured under the half-life. Raising
 `MAX_LINEAGES` is what buys this, since it converts theta rejections into free data
 rejections: 400 refuses 1.87%, 4000 refuses 0.81%, 20000 refuses 0.56% at the wider
 `LANCH=0.4`, and 200000 starts producing timeouts instead. Every batch records
@@ -104,9 +161,11 @@ by construction and it has to be read as accuracy against known truth, stratifie
 
 ## Chain length
 
-100M generations, printing every 50,000, which retains 1500 draws after warmup. Measured on
-40 replicates at the final prior: median per-replicate minimum ESS 738, 2 of 40 below 200,
-and the worst coordinate is `lambda[1]` in every one of them. The GMRF's figure at the same
+100M generations, printing every 50,000, which retains 1500 draws after warmup. Being
+re-measured under the half-life parameterisation, because the oldest interval is now coupled
+to its neighbour at 0.125 rather than 0.5 and its mixing is not the mixing already measured.
+Under the per-cell parameterisation, on 40 replicates: median per-replicate minimum ESS 738,
+2 of 40 below 200, and the worst coordinate was `lambda[1]` in every one of them. The GMRF's figure at the same
 length was 873, so the five estimated hyperparameters cost about 15% in the worst
 coordinate rather than an order of magnitude, and `tau_rates` and `tau_psi` are not
 themselves the bottleneck.
