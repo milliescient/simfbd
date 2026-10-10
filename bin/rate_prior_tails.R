@@ -79,7 +79,19 @@ for (kind in c("gmrf_lm", "hsmrf")) {
 }
 put("ndraw", N)
 
+# A readable summary first, then the key/value pairs the page substitutes.
+g <- function(k) get(k, envir = out)
+say <- c(
+  sprintf("%d draws per configuration, ceiling 400 lineages, timeline span 12 Myr.", N),
+  "",
+  sprintf("  %-10s %12s %12s", "intervals", "random walk", "AR(1)"),
+  sprintf("  %-10s %11s%% %11s%%", c(4, 8, 16, 32),
+          c(g("rej_gmrf_4"), g("rej_gmrf_8"), g("rej_gmrf_16"), g("rej_gmrf_32")),
+          c(g("rej_ar1_4"), g("rej_ar1_8"), g("rej_ar1_16"), g("rej_ar1_32"))),
+  "",
+  sprintf("  expected clade size at 8 intervals, p99.9: random walk %s, AR(1) %s",
+          g("q99p9_gmrf"), g("q99p9_ar1")))
+
 keys <- sort(ls(out))
-lines <- vapply(keys, function(k) paste0(k, "\t", get(k, envir = out)), "")
-path <- if (length(commandArgs(TRUE))) commandArgs(TRUE)[1] else ""
-if (nzchar(path)) writeLines(lines, path) else writeLines(lines)
+pairs <- vapply(keys, function(k) paste0(k, "\t", g(k)), "")
+writeLines(c(say, "", "## values", pairs))
