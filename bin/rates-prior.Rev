@@ -1,7 +1,7 @@
 # The prior on the skyline rates, shared by every analysis so that no two arms of a
 # comparison can drift apart. dnFBDRP, dnBDS and anything else source this file.
 #
-# Three arms, chosen by the batch config: a stationary OU process when OU_HALFLIFE is set, an
+# Three arms, chosen by the batch config: a stationary OU process when OU_THETA is set, an
 # order-1 GMRF when GMRF_SD or its hyperprior is set, and independent lognormals otherwise.
 # The simulator draws from whichever one is configured, through the same keys.
 
@@ -14,11 +14,11 @@ if (!exists("GMRF_PSI_MEAN")) GMRF_PSI_MEAN <- -1
 if (!exists("GMRF_PSI_SD")) GMRF_PSI_SD <- 0
 GMRF_HIER <- (GMRF_SD_SD > 0)
 # stationary OU alternative, on log lambda and log turnover rather than log mu. The mean
-# reversion is a half-life in Myr, so the prior does not depend on how finely the span is cut.
-if (!exists("OU_HALFLIFE")) OU_HALFLIFE <- -1
+# reversion is a rate per Myr, so the prior does not depend on how finely the span is cut.
+if (!exists("OU_THETA")) OU_THETA <- -1
 if (!exists("TMEAN")) TMEAN <- 0
 if (!exists("TSD")) TSD <- 0.3
-OU <- (OU_HALFLIFE > 0)
+OU <- (OU_THETA > 0)
 # the stationary prior's own hierarchy: a level per path and a stationary sd, both drawn per
 # replicate by the simulator and therefore estimated here
 if (!exists("LANCH")) LANCH <- 0
@@ -78,9 +78,8 @@ if (SKYLINE) {
         # midpoints. The simulator wrote these lags, so the two cannot disagree. The oldest
         # interval reaches the origin, so its lag is the one that is not INTERVAL_WIDTH.
         ou_lags <- readDataDelimitedFile(BATCHDIR + "/ou_lags.tsv")[1]
-        ou_theta <- ln(2) / OU_HALFLIFE
         for (i in 1:(n_int - 1)) {
-            ou_phi[i] <- exp(-ou_theta * ou_lags[i])
+            ou_phi[i] <- exp(-OU_THETA * ou_lags[i])
             ou_mult[i] <- sqrt(1 - ou_phi[i]^2)
         }
         log_lambda[1] ~ dnNormal(m_lambda, tau_rates)
