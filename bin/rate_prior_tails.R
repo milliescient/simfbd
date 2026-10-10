@@ -125,6 +125,61 @@ for (nint in c(4, 8, 32)) for (kind in c("bm", "ou")) {
   put(sprintf("grid_%s_%d", kind, nint), sprintf("%.2f", 100*mean(d$en > 400)))
 }
 
+# 3b. The study's own prior against a walk matched to it. The controlled sweep above holds
+# one sigma for both arms; the design instead draws the correlation and the amplitude per
+# replicate, so its local variation sigma^2 = 2*theta*tau^2 varies too. The walk is matched
+# replicate by replicate to that same sigma^2, so the pair differ only in the restoring force
+# and in nothing else.
+DREF   <- 1.5
+PHI_A  <- 1; PHI_B <- 1          # phi_ref ~ Beta(1,1), the correlation at the reference lag
+TAU_M  <- -0.70; TAU_S <- 0.25   # tau ~ lognormal, the stationary sd
+ANCH_S <- 0.25                   # the study's LANCH, narrower than the sweep's ANCH above
+nint   <- round(SPAN/WIDTH); brd <- WIDTH*seq_len(nint-1)
+en_ou <- en_bm <- fo_ou <- fo_bm <- s2v <- phv <- numeric(N)
+for (k in seq_len(N)) {
+  ph <- rbeta(1, PHI_A, PHI_B); th <- -log(ph)/DREF
+  tau <- rlnorm(1, TAU_M, TAU_S); s2 <- 2*th*tau^2
+  phv[k] <- ph; s2v[k] <- s2
+  age <- runif(1, 1.25*SPAN, 1.75*SPAN)
+  d <- c(rep(WIDTH, nint-1), age - WIDTH*(nint-1)); sh <- c(0, age - rev(brd))
+  a <- ou(LM, ANCH_S, tau, th, d); tt <- ou(0, TANCH, tau, th, d)
+  lam <- rev(exp(a)); fo_ou[k] <- max(lam)/min(lam)
+  en_ou[k] <- expected_lineages(lam, rev(exp(a+tt)), age, sh)
+  a <- bm(LM, ANCH_S, s2, d); tt <- bm(0, TANCH, s2, d)
+  lam <- rev(exp(a)); fo_bm[k] <- max(lam)/min(lam)
+  en_bm[k] <- expected_lineages(lam, rev(exp(a+tt)), age, sh)
+}
+put("h_rej_ou", sprintf("%.2f", 100*mean(en_ou > 400)))
+put("h_rej_bm", sprintf("%.2f", 100*mean(en_bm > 400)))
+put("h_cap_ou", sprintf("%.3f", 100*mean(en_ou > 20000)))
+put("h_cap_bm", sprintf("%.3f", 100*mean(en_bm > 20000)))
+put("h_ratio",  sprintf("%.0f", mean(en_bm > 400)/mean(en_ou > 400)))
+put("h_fold_ou", sprintf("%.2f", median(fo_ou)))
+put("h_fold_bm", sprintf("%.2f", median(fo_bm)))
+put("h_s2_p10", sprintf("%.3f", quantile(s2v, 0.10)))
+put("h_s2_p90", sprintf("%.3f", quantile(s2v, 0.90)))
+put("h_q99_ou", signif(quantile(en_ou[is.finite(en_ou)], 0.99), 3))
+put("h_q99_bm", signif(quantile(en_bm[is.finite(en_bm)], 0.99), 3))
+# and by band of the drawn correlation, since that is the axis the design now spreads
+rows <- ""
+B <- cut(phv, c(0,0.1,0.3,0.7,0.9,1), include.lowest = TRUE)
+for (lv in levels(B)) {
+  s <- B == lv
+  rows <- paste0(rows, sprintf(
+    "<tr><td>%s</td><td>%.0f%%</td><td>%.2f</td><td>%.2fx</td><td class=\"hi\">%.2f%%</td><td>%.2fx</td><td class=\"lo\">%.2f%%</td></tr>",
+    lv, 100*mean(s), median(s2v[s]), median(fo_ou[s]), 100*mean(en_ou[s] > 400),
+    median(fo_bm[s]), 100*mean(en_bm[s] > 400)))
+}
+put("h_rows", rows)
+# The walk gets more fold out of the same sigma^2 because it accumulates, so the comparison
+# is also run the other way: what the walk costs to deliver only what the OU delivers.
+walk_fold <- vapply(SDS, function(s) as.numeric(g0(sprintf("fold_bm_%s", lab(s)))), 0)
+walk_rej  <- vapply(SDS, function(s) as.numeric(g0(sprintf("rej_bm_%s", lab(s)))), 0)
+put("h_bm_at_fold", sprintf("%.1f", approx(walk_fold, walk_rej,
+                            xout = median(fo_ou), rule = 2)$y))
+put("h_cost_fold", sprintf("%.0f", approx(walk_fold, walk_rej, xout = median(fo_ou),
+                           rule = 2)$y / (100*mean(en_ou > 400))))
+
 # 4. The tail at the design point, and how far a ceiling has to move to escape it.
 for (kind in c("bm", "ou")) {
   d <- draws(kind, SD_DESIGN); e <- d$en[is.finite(d$en)]
@@ -184,7 +239,17 @@ say <- c(
           g("grid_bm_4"), g("grid_bm_32"), g("grid_ou_4"), g("grid_ou_32")),
   "",
   sprintf("  expected clade size at the design point, p99.9: walk %s, stationary %s",
-          g("q99p9_bm"), g("q99p9_ou")))
+          g("q99p9_bm"), g("q99p9_ou")),
+  "",
+  "  the study's own hierarchical prior against a walk matched replicate by replicate:",
+  sprintf("    sigma^2 spans %s to %s per Myr (p10 to p90)", g("h_s2_p10"), g("h_s2_p90")),
+  sprintf("    refused at 400:   stationary %s%%   walk %s%%   (%sx)",
+          g("h_rej_ou"), g("h_rej_bm"), g("h_ratio")),
+  sprintf("    refused at 20000: stationary %s%%   walk %s%%", g("h_cap_ou"), g("h_cap_bm")),
+  sprintf("    fold delivered:   stationary %sx  walk %sx", g("h_fold_ou"), g("h_fold_bm")),
+  sprintf("    p99 of E[N]:      stationary %s   walk %s", g("h_q99_ou"), g("h_q99_bm")),
+  sprintf("    priced at matched DELIVERED fold (%sx), the walk refuses %s%%, %sx the OU's %s%%",
+          g("h_fold_ou"), g("h_bm_at_fold"), g("h_cost_fold"), g("h_rej_ou")))
 
 keys <- sort(ls(out))
 pairs <- vapply(keys, function(k) paste0(k, "\t", g(k)), "")
