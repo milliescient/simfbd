@@ -106,6 +106,9 @@ rate_stats <- function(mf, ids, logs) {
   # the simulator records the origin as `age`; score it alongside the rates when it was logged
   probe <- read.table(logs[[1]], header = TRUE, nrows = 1)
   if ("org" %in% names(probe)) rates <- c(rates, "org")
+  # the hierarchical GMRF estimates its own walk widths, so they are parameters like any
+  # other and their ranks have to be uniform too, or the hyperprior is not what was drawn
+  for (h in c("gmrf_sd_rates", "gmrf_sd_psi")) if (h %in% names(probe)) rates <- c(rates, h)
 
   draws <- Map(function(f) {
     d <- read.table(f, header = TRUE)
