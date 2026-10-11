@@ -3,65 +3,123 @@
 Simulation-based calibration and misspecification analyses for the RevBayes
 `dnFBDRMatrix` model set.
 
+## Install
+
+    pip install -e /path/to/simfbd        # or: uv tool install /path/to/simfbd
+
+That puts `simfbd` on the path. It runs R and RevBayes, which are not Python's to install:
+`simfbd doctor` says which `rb` and `Rscript` this machine would use and whether the R packages
+are there. They are found from `$RBIN` and `$RSCRIPT`, else `~/.config/simfbd/tools.yml`, else
+`PATH`:
+
+```yaml
+rb: /opt/revbayes/build/rb
+rscript: /opt/R/bin/Rscript
+```
+
 ## Layout
 
 A **batch** owns the generating process and every hyperprior. One simulation pass emits
-all reporting models from one record, so the analyses under it share a timeline and one
+all reporting models from one record, so the fits under it share a timeline and one
 `true_vals.tsv`, and comparisons between them are paired on identical truth.
 
-An **analysis** under `runs/` chooses only what to read and how to fit it. It inherits the
-batch's hyperpriors and may not redeclare them.
+A **run** under a batch's `runs/` chooses only what to read and how to fit it. It inherits
+the batch's hyperpriors and has no way to set them.
 
 ```
-bin/                 shared scripts; one of each, no per-analysis copies
-  sim.R              paleobuddy simulator; emits every reporting model in one pass
-  infer.Rev          rb inference; every prior arrives as a variable, none hardcoded
-  simfbd             the front door: simfbd extend | fit | status | summarize | ranks | --version
-  run.sh             driver behind `simfbd fit`: bash bin/run.sh <batch>[/runs/<name>]
-  extend.sh          behind `simfbd extend`: bash bin/extend.sh <batch> <how many>
-  manifest.py        writes, reads and checks manifest.yml, and says what every config key means
-  summarize.R        SBC scoring and figures, driven by the run's manifest
-  bias.R             dnBDS against dnFBDRP on identical data, by sampled fraction
-  env.sh             toolchain paths; monitor.sh, kill.sh generic helpers
-sims/batch1/
-  config.sh          the generating process and every hyperprior
-  manifest.yml       what was actually used and how many replicates exist, written by bin/run.sh
+a-batch/
+  config.yml         the generating process and every hyperprior, written by you
+  manifest.yml       the same settings as simulated, and the record of that, written by simfbd
   specimens_complete/  specimens_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
-    config.sh        which reporting model to read, and how to fit it
-    manifest.yml     + the batch hash it ran against, and the rb identity
+    config.yml       which record to read, and how to fit it
+    manifest.yml     + what it read and wrote, and which code and which rb ran
     output/  aux/  results/
-bin/pyrate/          PyRate and BDS inference scripts; sampling/ holds their prior.rev
+```
+
+A batch is a directory anywhere on disk, and nothing in a manifest records where it is: a
+run finds its batch as the directory two above it. So a study can be kept, moved or handed
+over as a directory, with simfbd at a stated commit to read it.
+
+```
+src/simfbd/          the package
+  cli.py             the simfbd command
+  settings.py        every setting: the name it is written under and what it means
+  config.py          reads and checks a config.yml
+  batch.py  fit.py   simulate replicates, fit a run
+  manifest.py        writes, reads and checks a manifest.yml
+  ranks.py           mean rank per parameter
+  scripts/           what simfbd runs or carries: the simulator sim.R, the Rev templates,
+                     summarize.R, and the shell driver for batches made before configs were YAML
+scripts/             exploratory sweeps, run by hand
 ```
 
 ## Running
 
 ```sh
 simfbd extend sims/batch1 200                # simulate the batch's first 200 replicates
-simfbd fit sims/batch1/runs/fbdrp_firstlast  # infer on every replicate not yet fitted
+simfbd fit sims/batch1/runs/fbdrp_firstlast  # fit every replicate not yet fitted
 simfbd summarize sims/batch1/runs/fbdrp_firstlast
 simfbd extend sims/batch1 800                # later: 800 more, and the batch has 1000
 simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
 ```
 
-`simfbd` is `bin/simfbd`: call it by its path, or link it onto `PATH`, and it finds the rest of
-`bin/` beside itself. The scripts behind it can still be called directly.
+## Config and manifest
 
-A batch is a directory holding a `config.sh`, and it can be anywhere on disk. A relative path is
-looked for where the command is typed and then under this repository, so `sims/batch1` means what
-it always has. Nothing in a manifest records where a batch is: a run finds its batch as the
-directory two above it. So a study can be kept, moved or handed over as a directory, with this
-repository at a stated commit to read it.
+A config is what you ask for and a manifest is what was done. Both are YAML, in the same
+names, and a manifest is the config as it was used plus the record.
 
-`simfbd --version` prints that commit, in the words a manifest records it in, ending in `-dirty`
-when the code has uncommitted changes. `simfbd --home` prints where the code is, for a script
-that sources part of it, such as `bin/prior_sim.R`.
+```yaml
+# a batch's config.yml
+timeline:
+  rate_intervals: 3
+  interval_width: 3
+origin_age:
+  min: 9
+  max: 15
+  origin_lineage_must_be_sampled: false
+rate_priors:
+  speciation: {log_mean: -2.0, log_sd: 0.5}
+  extinction: {log_mean: -2.0, log_sd: 0.5}
+  fossil_sampling: {log_mean: -0.125, log_sd: 0.5}
+  anagenetic_speciation: 0
+record:
+  occurrence_bins: {width: 3, oldest_edge: 30}
+simulation_limits:
+  max_lineages: 250
+```
+
+```yaml
+# a run's config.yml
+inference:
+  model: fbdr
+  record_read: complete
+  record_treated_as: complete
+  conditioned_on: time
+  extant_sampling_probability: 1.0
+mcmc:
+  generations: 200000
+  sample_every: 1000
+  chains_at_once: 6
+```
+
+`simfbd config names` lists every setting with what it means and which are required. A name
+that is not a setting is refused, with the nearest one that is, and so is a run setting in a
+batch's config or the other way round. Times are in whatever unit the rates are per.
+
+A batch's config does not say how many replicates it has: `simfbd extend` adds them and the
+manifest counts them. New replicates cannot be drawn under different settings, since they
+come from the batch's own config, and `extend` refuses if that config or the simulator has
+changed since the earlier ones. Those are never redrawn or rewritten: an extension simulates
+only what is missing, appends rows to `true_vals.tsv` and `nums.tsv`, and adds its
+per-replicate files beside the others. Anything that pinned a hash of `true_vals.tsv`, a
+specimens directory or the manifest will see that hash move, because those did grow.
 
 ### Checking a batch or a run
 
-A manifest records what a notebook's lock records, in the same words. `uses` names the code that
-ran as `name@version`, and `inputs` and `outputs` give each path with its hash:
+A manifest records what a notebook's lock records, in the same words. `uses` names the code
+that ran as `name@version`, and `inputs` and `outputs` give each path with its hash:
 
 ```yaml
 uses: ["simfbd@f0c6fe5", "rb@28e5b2"]
@@ -71,69 +129,67 @@ outputs:
   output: caf92bd48090                # written by this run
 ```
 
-`simfbd status` recomputes the hashes and reports each path as `current`, `changed` or `missing`.
-For a run it also checks the edge: what the run read must be what the batch says it wrote, and a
-run fitted before its batch was extended is reported `stale`. It exits non-zero if anything is
-changed, missing or stale. The hash is `digest()` in `bin/manifest.py`: SHA-1 over one line
-per file, its relative name and the SHA-1 of its bytes, files in sorted order, first 12 hex
-digits. Hashing each file apart is what lets a reader remember the files it has seen. It is the hash sloop
-computes, so a page that pins one of these paths records the same value.
+`simfbd status` recomputes the hashes and reports each path as `current`, `changed` or
+`missing`. For a run it also checks the edge: what the run read must be what the batch says
+it wrote, and a run fitted before its batch was extended is reported `stale`. It exits
+non-zero if anything is changed, missing or stale. The hash is `digest()` in `manifest.py`:
+SHA-1 over one line per file, its relative name and the SHA-1 of its bytes, files in sorted
+order, first 12 hex digits. It is the hash sloop computes, so a page that pins one of these
+paths records the same value.
 
-A batch's manifest keeps the output hashes of every extension, and only the last can still be
-checked, since an extension changes the files. A batch or run written before hashes were recorded
-is reported as `unrecorded`, and one with a `manifest.tsv` has nothing to check.
+A batch's manifest keeps the output hashes of every extension, and only the last can still
+be checked, since an extension changes the files.
 
-A batch's `config.sh` does not say how many replicates it has; the manifest counts them.
-`bin/extend.sh` reads the batch's own config, so new replicates cannot be drawn under
-different settings, and it refuses if the config or `bin/sim.R` has changed since the earlier
-ones. Those are never redrawn or rewritten: an extension simulates only what is missing,
-appends rows to `true_vals.tsv` and `nums.tsv`, and adds its per-replicate files beside the
-others. Anything that pinned a hash of `true_vals.tsv`, a specimens directory,
-`sim_list.RData` or the manifest will see that hash move, because those did grow.
+`simfbd --version` prints the commit of the code, ending in `-dirty` when it has uncommitted
+changes. Run from a checkout it asks git; an installed copy carries the commit it was built
+from.
 
-A batch simulated before this has `NREPS` in its config and a `manifest.tsv`. It runs as it
-always did, its manifest is read by the same scripts, and it cannot be extended.
+### Batches made before configs were YAML
 
-`sims/smoke/` is the same thing at 6 replicates and short chains, for checking the
-pipeline end to end in about a minute.
+Such a batch holds a `config.sh` of short capitalised keys, and either a `manifest.tsv` or a
+`manifest.yml`. `simfbd fit`, `summarize`, `ranks` and `status` still work on it: the shell
+driver it was made with is carried in `scripts/` and is called for it and for nothing else.
+It cannot be regenerated, and one with a `manifest.tsv` cannot be extended. A new batch takes
+a `config.yml`, and `simfbd config convert old/config.sh` writes one from an old config,
+saying what it left out.
 
-Batches that differ only in the origin prior pool into a range of tree sizes. A deep
-origin wants `MAX_LINEAGES`, a ceiling on lineages ever born, because it leaves the oldest
-interval unbounded and a draw in the upper tail of lambda then never finishes simulating.
+## The two ceilings on a simulation
 
-`SIM_MAX_DRAWS` is the second ceiling, on the work one simulation may do. It counts the
-waiting times the birth-death simulator draws, across every tree it tries, and refuses the
-draw when the count is passed. The count follows from the random stream, so the same seeds
-refuse the same draws on any machine and a batch reproduces from `seeds.RData`. It replaces
-`SIM_TIMEOUT`, which counted seconds and so refused whatever the machine was too busy for;
-a new batch that sets `SIM_TIMEOUT` is refused. A tree of n lineages takes about 3n draws,
-so keep the ceiling several times `MAX_LINEAGES`: 100000 cuts a runaway off after roughly
-what 20 seconds used to, 200000 after roughly 60. The simulator prints how many draws were
-refused and the most any finished simulation used.
+Batches that differ only in the origin prior pool into a range of tree sizes. A deep origin
+wants `simulation_limits.max_lineages`, a ceiling on lineages ever born, because it leaves
+the oldest interval unbounded and a draw in the upper tail of the speciation rate then never
+finishes simulating.
 
-That ceiling is the one filter that costs something. It is applied by refusing the draw
+`simulation_limits.max_waiting_time_draws` is the second ceiling, on the work one simulation
+may do. It counts the waiting times the birth-death simulator draws, across every tree it
+tries, and refuses the draw when the count is passed. The count follows from the random
+stream, so the same seeds refuse the same draws on any machine and a batch reproduces from
+`seeds.RData`. A tree of n lineages takes about 3n draws, so keep it several times
+`max_lineages`: 100000 cuts a runaway off after roughly 20 seconds on the machine it was
+measured on, 200000 after roughly 60. The simulator prints how many draws were refused and
+the most any finished simulation used.
+
+The first ceiling is the one filter that costs something. It is applied by refusing the draw
 before it is simulated, so it is a function of theta alone: it truncates the prior the
-simulator draws from while the analysis keeps the untruncated one, and the SBC ranks are
-non-uniform by exactly that much. A floor and ceiling on the number of reported taxa is a
-function of the record and is free, because conditioning on a function of the record leaves
-the posterior given that record alone. Every batch now records `screened_frac`, the fraction
-of draws the ceiling refused, in its manifest.
+simulator draws from while the fit keeps the untruncated one, and the SBC ranks are
+non-uniform by exactly that much. A floor and ceiling on the number of reported taxa,
+`accepted_replicates`, is a function of the record and is free, because conditioning on a
+function of the record leaves the posterior given that record alone. Every batch records
+`prior_screen`, the fraction of draws the ceiling refused, in its manifest.
 
 How much it costs is a question of resolution: a truncation of fraction e shifts a mean rank
 by roughly e/2, against a standard error of 0.289/sqrt(n). At n = 10000 that is 0.0029, so e
 has to stay near or below 0.5% for the truncation to be invisible. Whether a given prior can
-meet that is a question for the study that chooses it; `screened_frac` is what lets it be
+meet that is a question for the study that chooses it; `prior_screen` is what lets it be
 measured rather than assumed.
 
 ## The two key axes
 
-- **REPORTING** = `complete` | `firstlast` — which record the analysis
-  reads. All three come from the same simulated history.
-- **INFER** = `complete` | `incomplete` — how `dnFBDRMatrix` treats it
-  (`complete=true` / `false`).
+- **`inference.record_read`** = `complete` | `firstlast`: which record the fit reads. All
+  come from the same simulated history.
+- **`inference.record_treated_as`** = `complete` | `incomplete`: how the model treats it.
 
-Matching them is validation; mismatching them is a misspecification analysis. Each entry
-in `docs/MISSPECIFICATIONS.md` corresponds to a runnable analysis.
+Matching them is validation; mismatching them is a misspecification analysis.
 
 ## Why the parameters are tracked this way
 
@@ -144,52 +200,39 @@ here: once when the origin prior was `U(9,15)` in the simulator and `U(5,15)` on
 and once when a copied analysis read one batch's data while being scored against another
 batch's truth.
 
-So `config.sh` is the single definition. `bin/run.sh` sources it, exports it to
-`bin/sim.R`, and writes the same values into the per-replicate `aux/run_<rep>.Rev` that
-`bin/infer.Rev` reads. Neither script contains a prior of its own. Four rules keep it
-that way:
+So the batch's `config.yml` is the single definition. simfbd hands it to the simulator and
+writes the same values into the per-replicate `aux/run_<rep>.Rev` the Rev template reads.
+Neither script contains a prior of its own. Four rules keep it that way:
 
-- **A missing key is fatal.** `bin/sim.R` has no defaults, because a default is what lets
-  a renamed or forgotten key produce a plausible run.
-- **An analysis may not set a batch-owned key.** `bin/run.sh` refuses if one appears in a
-  `runs/*/config.sh`, so there is never a second definition to disagree with.
+- **A missing setting is fatal.** The simulator has no defaults for what a batch must say,
+  because a default is what lets a renamed or forgotten setting produce a plausible run.
+- **A run cannot set what the batch owns.** A batch setting in a run's config is refused,
+  so there is never a second definition to disagree with.
 - **The simulator reports what it drew with.** `sim_params.tsv` is compared against the
-  config, so a key that fails to reach it is caught rather than assumed.
-- **An edited config is refused, not mixed.** Each manifest records the hash of the
-  config that produced its data, and a run records the batch hash it ran against.
-  Changing either after the fact stops the run instead of quietly mixing parameters
-  across replicates. `FORCE=1` overrides for a run, and for a batch with a `manifest.tsv`.
+  config, so a setting that fails to reach it is caught rather than assumed.
+- **An edited config is refused, not mixed.** Each manifest records the hash of the config
+  that produced its data, and a run records the batch hash it ran against. Changing either
+  after the fact stops the run instead of quietly mixing parameters across replicates.
+  `simfbd fit --force` overrides for a run.
 
-`manifest.yml` is what makes an output self-describing: it names the batch, the reporting
-model, the resolved hyperpriors, the config hashes, the script hashes and the rb binary.
-`bin/summarize.R` reads it rather than re-deriving anything from directory names, so a
-result cannot be scored against the wrong truth.
+`manifest.yml` is what makes an output self-describing: it names the batch, the record
+read, the resolved hyperpriors, the config hashes, the script hashes and the rb binary.
+`summarize.R` reads it rather than re-deriving anything from directory names, so a result
+cannot be scored against the wrong truth.
 
-It is also where a config key is explained. `config.sh` keeps short shell names because
-`bin/run.sh` sources it, so the manifest writes each setting under a name that says what it
-is, with the config key beside it:
+The names are in `settings.py`, one line a setting: the name it is written under, what it
+means, and the name the simulator and the Rev templates know it by. That last is how a value
+reaches them and nothing a person writes or reads. A new setting gets a line there.
 
-```yaml
-rate_priors:
-  fossil_sampling:
-    log_mean: -0.125     # PMEAN
-    log_sd: 0.5          # PSD
-```
+## What is not reproducible
 
-The tables behind that are `BATCH_SETTINGS` and `RUN_SETTINGS` in `bin/manifest.py`. A new config key gets a line there,
-with a name a reader can understand without opening `bin/sim.R`. Scripts read a manifest
-through `bin/manifest.py get` and `flat`, which answer by config key for either format.
+A simulation is: the same seeds give the same batch, byte for byte. A fit is not. The Rev
+templates set no seed, so two fits of one replicate give different chains, on one machine
+with one binary. Their summaries agree to within Monte Carlo error.
 
 ## Scope
 
-`MODEL=fbdr` is wired. `bds` and `pyrate` remain as config keys and are rejected with a
-clear error until reconnected. Their scripts are in `bin/pyrate/` and `sampling/`, and
-`bin/pyrate.sh` reads the same `taxon/min_age/max_age/status` specimen format `bin/sim.R`
-already writes, so reconnecting them needs no separate simulator. The previous TreeSim
-pipeline is in git history at 8563117.
-
-## Toolchain (this machine)
-
-- `rb`: pinned build, set in `bin/env.sh` and overridable with `RBIN=...`; the manifest
-  records the path, the md5 and the binary's own git describe, so it names what actually ran.
-- R + paleobuddy: micromamba env `/research/phyloworks/mm/root/envs/fsim`
+`inference.model: fbdr`, `bds` and `fbdsp` are wired. PyRate is not: its scripts are in
+`scripts/pyrate/` and `sampling/`, and `scripts/pyrate.sh` reads the same
+`taxon/min_age/max_age/status` specimen format the simulator already writes, so reconnecting
+it needs no separate simulator. The previous TreeSim pipeline is in git history at 8563117.

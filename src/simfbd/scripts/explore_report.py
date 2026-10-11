@@ -12,10 +12,13 @@ import glob, os, re, statistics as st, subprocess, sys, tempfile, collections
 
 batch, rb = sys.argv[1], sys.argv[2]
 reporting = sys.argv[3] if len(sys.argv) > 3 else "complete"
-cfg = open(os.path.join(batch, "config.sh")).read()
+# the batch's settings as it was simulated, whichever kind of config it has
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import manifest
+settings = manifest.flat(batch)
 def get(k, d=None):
-    m = re.search(rf'(?:^|;)\s*{k}=([0-9.eE+-]+)', cfg, re.M)
-    return float(m.group(1)) if m else d
+    v = settings.get(k)
+    return d if v in (None, "none") else float(v)
 nint, w = int(get("NINTERVALS")), get("INTERVAL_WIDTH")
 breaks = [w * i for i in range(1, nint)]
 

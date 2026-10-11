@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
-"""Write and read a batch's or a run's manifest.yml.
+"""Write, read and check a batch's or a run's manifest.yml.
 
-    manifest.py write-batch DIR field=value ...   # settings come from the environment
-    manifest.py write-run   DIR field=value ...
-    manifest.py get  DIR KEY                      # one value, by config key or record field
-    manifest.py flat DIR                          # every value, as key<TAB>value lines
-    manifest.py status DIR                        # does the directory still match its manifest
+A config is what was asked for and a manifest is what was done: the same settings under the
+same names, then the record. How many replicates there are, which code ran as name@version
+under `uses`, and the hash of each path it read and wrote under `inputs` and `outputs`. Those
+are the words a notebook's lock uses, and the hash is digest() below, which is the one sloop
+computes, so a batch or a run can be checked with no notebook and a path hashes alike in both.
 
-A manifest says what a batch or a run is, in words. config.sh keeps its short shell names,
-because bin/run.sh sources it, and the SETTINGS tables below are the one place that says what each of
-them means: every line of a manifest carries the name a reader wants, and beside it the
-config key it came from.
+Scripts read a manifest through flat(), which answers by the name the simulator knows a
+setting by. A batch simulated before manifest.yml existed has a manifest.tsv of key<TAB>value
+lines instead, and flat() reads that too, so a script never has to know which kind it was
+handed.
 
-Beside the settings a manifest records what a notebook's lock records, in the same words, so
-a batch or a run can be checked with no notebook: `uses` names the code that ran as
-name@version, and `inputs` and `outputs` give each path with its hash. The hash is digest()
-below, which is the one sloop computes, so a path hashes the same in both.
-
-Scripts read a manifest through `get` and `flat`, which answer by config key. A batch
-simulated before manifest.yml existed has a manifest.tsv of key<TAB>value lines instead, and
-both commands read that too, so a script never has to know which kind it was handed.
+    python -m simfbd.manifest get  DIR KEY      # one value
+    python -m simfbd.manifest flat DIR          # every value, as key<TAB>value lines
 """
 import hashlib
 import os
@@ -29,108 +23,7 @@ from pathlib import Path
 
 import yaml
 
-# config key, where it sits in the manifest, what it means
-BATCH_SETTINGS = [
-    ("NINTERVALS", "timeline.rate_intervals",
-     "piecewise-constant rate intervals"),
-    ("INTERVAL_WIDTH", "timeline.interval_width_myr",
-     "width of each interval; the oldest runs on to the origin"),
-    ("PRESENT", "timeline.record_stops_at_myr",
-     "the record ends here, not at zero; younger occurrences are discarded"),
-    ("AGE_MIN", "origin_age.min_myr", "origin ~ Uniform(min, max)"),
-    ("AGE_MAX", "origin_age.max_myr", ""),
-    ("ORIGIN_SAMPLED", "origin_age.origin_lineage_must_be_sampled", ""),
-
-    ("LMEAN", "rate_priors.speciation.log_mean",
-     "lognormal, on the log scale; one draw per interval"),
-    ("LSD", "rate_priors.speciation.log_sd", ""),
-    ("MMEAN", "rate_priors.extinction.log_mean", ""),
-    ("MSD", "rate_priors.extinction.log_sd", ""),
-    ("TMEAN", "rate_priors.turnover.log_mean",
-     "stationary prior only: extinction is speciation times turnover"),
-    ("TSD", "rate_priors.turnover.log_sd", ""),
-    ("PMEAN", "rate_priors.fossil_sampling.log_mean", ""),
-    ("PSD", "rate_priors.fossil_sampling.log_sd", ""),
-    ("LAMBDA_A", "rate_priors.anagenetic_speciation",
-     "above 0, an anagenetic rate is drawn from the speciation prior; 0 is budding only"),
-
-    ("GMRF_SD", "rates_through_time.random_walk.step_sd",
-     "sd of the step between adjacent intervals' log rates"),
-    ("GMRF_SD_MEAN", "rates_through_time.random_walk.step_sd_prior.log_mean",
-     "speciation and extinction: the step sd is drawn per replicate, lognormal"),
-    ("GMRF_SD_SD", "rates_through_time.random_walk.step_sd_prior.log_sd", ""),
-    ("GMRF_PSI_MEAN", "rates_through_time.random_walk.fossil_sampling_step_sd_prior.log_mean",
-     "fossil sampling gets its own step sd"),
-    ("GMRF_PSI_SD", "rates_through_time.random_walk.fossil_sampling_step_sd_prior.log_sd", ""),
-    ("OU_THETA", "rates_through_time.stationary.mean_reversion_per_myr",
-     "fixed; set this or correlation_prior, not both"),
-    ("OU_DREF", "rates_through_time.stationary.reference_lag_myr",
-     "the lag the correlation is stated at"),
-    ("OU_PHI_A", "rates_through_time.stationary.correlation_prior.beta_a",
-     "correlation at the reference lag, drawn per replicate from Beta(a, b)"),
-    ("OU_PHI_B", "rates_through_time.stationary.correlation_prior.beta_b", ""),
-    ("LANCH", "rates_through_time.stationary.level_sd.speciation",
-     "sd of each replicate's mean log rate about the prior mean; 0 fixes it there"),
-    ("TANCH", "rates_through_time.stationary.level_sd.turnover", ""),
-    ("PANCH", "rates_through_time.stationary.level_sd.fossil_sampling", ""),
-    ("OU_SD_MEAN", "rates_through_time.stationary.spread_prior.log_mean",
-     "speciation and turnover: the sd through time is drawn per replicate, lognormal"),
-    ("OU_SD_SD", "rates_through_time.stationary.spread_prior.log_sd", ""),
-    ("OU_PSI_MEAN", "rates_through_time.stationary.fossil_sampling_spread_prior.log_mean",
-     "fossil sampling gets its own"),
-    ("OU_PSI_SD", "rates_through_time.stationary.fossil_sampling_spread_prior.log_sd", ""),
-
-    ("RHO", "record.extant_sampling_probability",
-     "chance a lineage alive at the present is seen there"),
-    ("REPORT_PROB", "record.interior_reporting",
-     "below 1, interior occurrences are thinned at a rate drawn per replicate from Uniform(0, 1)"),
-    ("BIN_WIDTH", "record.occurrence_bins.width_myr",
-     "occurrence ages are reported to these bins"),
-    ("BIN_MAX", "record.occurrence_bins.oldest_edge_myr", ""),
-
-    ("MIN_TAXA", "accepted_replicates.min_taxa",
-     "a replicate outside these bounds is redrawn"),
-    ("MAX_TAXA", "accepted_replicates.max_taxa", ""),
-    ("TAXA_COUNT", "accepted_replicates.taxa_counted",
-     "fossil: fossil-sampled taxa only; record: survivors seen at the present too"),
-    ("MIN_FOSSIL_TAXA", "accepted_replicates.min_fossil_taxa", ""),
-
-    ("MAX_LINEAGES", "simulation_limits.max_lineages",
-     "a draw expected to exceed this is refused unsimulated, which truncates the prior"),
-    ("SIM_MAX_DRAWS", "simulation_limits.max_waiting_time_draws",
-     "a draw whose simulation needs more waiting times than this is redrawn"),
-]
-
-RUN_SETTINGS = [
-    ("MODEL", "inference.model", "fbdr: dnFBDRP; bds: dnBDS; fbdsp: dnFBDSP"),
-    ("REPORTING", "inference.record_read", "the batch's specimens_<this> directory"),
-    ("INFER", "inference.record_treated_as", "complete or incomplete"),
-    ("COND", "inference.conditioned_on", ""),
-    ("RHO", "inference.extant_sampling_probability", ""),
-    ("ORIGIN_PRIOR", "inference.origin_prior", ""),
-    ("SURVIVORS", "inference.survivors", ""),
-    ("DROP_PRESENT_ONLY", "inference.drop_present_only_taxa", ""),
-    ("GENS", "mcmc.generations", ""),
-    ("PRINTGEN", "mcmc.sample_every", ""),
-]
-
-# what a manifest records beyond settings: the name a script asks for, and where it sits
-BATCH_RECORD = {
-    "kind": "kind", "batch": "batch", "config_hash": "config_hash",
-    "true_vals_order": "true_vals_order", "NREPS": "replicates",
-    "screened": "prior_screen.refused", "screened_of": "prior_screen.of",
-    "screened_frac": "prior_screen.fraction",
-}
-RUN_RECORD = {
-    "kind": "kind", "run": "run", "batch": "batch",
-    "batch_config_hash": "batch_config_hash", "config_hash": "config_hash",
-    "true_vals_order": "true_vals_order", "NREPS": "replicates", "specimens": "specimens",
-    "infer_script_hash": "toolchain.infer_script_hash",
-    "rb_path": "toolchain.rb_path", "rb_md5": "toolchain.rb_md5",
-    "rb_describe": "toolchain.rb_describe",
-    # the names a manifest.tsv used for these two
-    "survivors": "inference.survivors", "drop_present_only": "inference.drop_present_only_taxa",
-}
+from .settings import BATCH_RECORD, BATCH_SETTINGS, RUN_RECORD, RUN_SETTINGS
 
 NUMBER = re.compile(r"-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?")
 WORD = re.compile(r"[A-Za-z][A-Za-z0-9_./-]*")
@@ -196,7 +89,7 @@ def shown(v):
 
 
 def settings_lines(settings, value_of, indent=""):
-    """The settings that are set, nested by section, each beside the config key it came from."""
+    """The settings that are set, nested by section, each with what it means beside it."""
     rows, open_path = [], []
     for key, path, meaning in settings:
         v = value_of(key)
@@ -212,7 +105,7 @@ def settings_lines(settings, value_of, indent=""):
         for depth in range(common, len(sections)):
             rows.append((f"{indent}{'  ' * depth}{sections[depth]}:", ""))
         open_path = sections
-        note = f"{key}  {meaning}".rstrip()
+        note = meaning
         rows.append((f"{indent}{'  ' * len(sections)}{name}: {setting(v)}", note))
     width = max((len(left) for left, note in rows if note), default=0) + 2
     return [f"{left.ljust(width)}# {note}" if note else left for left, note in rows]
@@ -289,7 +182,7 @@ def save(d, lines):
     os.replace(tmp, os.path.join(d, "manifest.yml"))
 
 
-def write_batch(d, f):
+def write_batch(d, f, value_of=os.environ.get):
     _, old = find(d)
     first, last = int(f["first"]), int(f["last"])
     simulated = list((old or {}).get("simulated") or [])
@@ -302,7 +195,7 @@ def write_batch(d, f):
                       "uses": [f"simfbd@{f['simfbd_commit']}"],
                       "outputs": {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}})
     lines = [
-        "# Written by bin/run.sh. Each setting is followed by its config.sh key.",
+        "# Written by simfbd: the batch's settings as it was simulated, and the record of that.",
         "kind: batch",
         f"batch: {text(os.path.basename(os.path.normpath(d)))}",
         f"config_hash: {text(f['config_hash'])}",
@@ -310,7 +203,7 @@ def write_batch(d, f):
         "true_vals_order: youngest_first",
         "",
         f"replicates: {last}",
-        "# One entry per extension. outputs are the batch's files as they stood after it, so",
+        "# One entry per simfbd extend. outputs are the batch's files as they stood after it, so",
         "# only the last entry can still be checked: simfbd status <batch>",
         "simulated:",
     ]
@@ -331,18 +224,18 @@ def write_batch(d, f):
                   f"  refused: {s['screened']}",
                   f"  of: {s['screened_of']}",
                   f"  fraction: {s['screened_frac']}"]
-    lines += ["", "# ---- the generating process, from config.sh ----"]
-    lines += settings_lines(BATCH_SETTINGS, os.environ.get)
+    lines += ["", "# ---- the generating process, from the batch's config ----"]
+    lines += settings_lines(BATCH_SETTINGS, value_of)
     save(d, lines)
 
 
-def write_run(d, f):
+def write_run(d, f, value_of=os.environ.get):
     batch_path, batch = find(f["batch_dir"])
     if batch is None:
         raise SystemExit(f"manifest.py: {f['batch_dir']} has no manifest.yml")
     sim = flat(f["batch_dir"])
     lines = [
-        "# Written by bin/run.sh. Each setting is followed by its config.sh key.",
+        "# Written by simfbd: the run's settings as it was fitted, and the record of that.",
         "kind: run",
         f"run: {text(os.path.basename(os.path.normpath(d)))}",
         f"batch: {text(batch['batch'])}",
@@ -367,8 +260,8 @@ def write_run(d, f):
         f"  rb_md5: {text(f['rb_md5'])}",
         f"  rb_describe: {text(f['rb_commit'])}",
     ]
-    lines += ["", "# ---- the fit, from this run's config.sh ----"]
-    lines += settings_lines(RUN_SETTINGS, os.environ.get)
+    lines += ["", "# ---- the fit, from this run's config ----"]
+    lines += settings_lines(RUN_SETTINGS, value_of)
     lines += ["", f"# ---- the generating process, copied from {batch_path} ----",
               "simulation:"]
     lines += settings_lines(BATCH_SETTINGS,
@@ -407,13 +300,14 @@ def status(d):
                 row("current" if got == want else "changed", label + name,
                     "" if got == want else f"{want} -> {got}")
 
-    cfg = os.path.join(d, "config.sh")
+    name = "config.yml" if os.path.exists(os.path.join(d, "config.yml")) else "config.sh"
+    cfg = os.path.join(d, name)
     if os.path.exists(cfg):
         got = sha1_12(cfg)
-        row("current" if got == doc.get("config_hash") else "changed", "config.sh",
+        row("current" if got == doc.get("config_hash") else "changed", name,
             "" if got == doc.get("config_hash") else f"{doc.get('config_hash')} -> {got}")
     else:
-        row("missing", "config.sh")
+        row("missing", name)
 
     if doc.get("kind") == "run":
         batch_dir = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
@@ -426,7 +320,7 @@ def status(d):
             row("unrecorded", "inputs and outputs", "written before hashes were recorded")
         if batch:
             if batch.get("config_hash") != doc.get("batch_config_hash"):
-                row("changed", "batch: config.sh",
+                row("changed", "batch: its config",
                     f"{doc.get('batch_config_hash')} -> {batch.get('config_hash')}")
             # the edge: what this run read must be what the batch says it wrote
             wrote = (batch.get("simulated") or [{}])[-1].get("outputs") or {}

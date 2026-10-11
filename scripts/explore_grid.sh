@@ -3,6 +3,7 @@
 # Varies interval count, sampling rate and speciation rate; reports how often the
 # classical estimators are defined and how big the records get.
 set -u
+SIMS="${SIMS:-sims}"      # where the batches go
 RB=/research/phyloworks/rb-estimators/projects/cmake/build-estimators/rb
 NREPS=${NREPS:-40}
 for nint in 5 10; do
@@ -10,30 +11,39 @@ for nint in 5 10; do
   for pmean in -1.5 -0.5; do
     for lmean in -1.5 -0.9; do
       name="exp-i${nint}-p${pmean#-}-l${lmean#-}"
-      rm -rf "sims/$name"; mkdir -p "sims/$name"
-      cat > "sims/$name/config.sh" <<CFG
-NINTERVALS=$nint
-INTERVAL_WIDTH=$w
-LMEAN=$lmean; LSD=0.5
-MMEAN=-1.5; MSD=0.5
-PMEAN=$pmean; PSD=0.5
-AGE_MIN=15; AGE_MAX=21
-BIN_WIDTH=1.5; BIN_MAX=36
-LAMBDA_A=0
-ORIGIN_SAMPLED=false
-GMRF_SD=0.5
-MIN_TAXA=10
-MAX_TAXA=400
-TAXA_COUNT=record
-MIN_FOSSIL_TAXA=5
-MAX_LINEAGES=400
-SIM_MAX_DRAWS=100000
+      rm -rf "$SIMS/$name"; mkdir -p "$SIMS/$name"
+      cat > "$SIMS/$name/config.yml" <<CFG
+timeline:
+  rate_intervals: $nint
+  interval_width: $w
+origin_age:
+  min: 15
+  max: 21
+  origin_lineage_must_be_sampled: false
+rate_priors:
+  speciation: {log_mean: $lmean, log_sd: 0.5}
+  extinction: {log_mean: -1.5, log_sd: 0.5}
+  fossil_sampling: {log_mean: $pmean, log_sd: 0.5}
+  anagenetic_speciation: 0
+rates_through_time:
+  random_walk:
+    step_sd: 0.5
+record:
+  occurrence_bins: {width: 1.5, oldest_edge: 36}
+accepted_replicates:
+  min_taxa: 10
+  max_taxa: 400
+  taxa_counted: record
+  min_fossil_taxa: 5
+simulation_limits:
+  max_lineages: 400
+  max_waiting_time_draws: 100000
 CFG
       echo "### $name"
-      bash bin/extend.sh "sims/$name" "$NREPS" > "sims/$name/sim.log" 2>&1 \
+      simfbd extend "$SIMS/$name" "$NREPS" > "$SIMS/$name/sim.log" 2>&1 \
         && awk 'END{}' /dev/null \
         || { echo "  simulation failed, see sims/$name/sim.log"; continue; }
-      python3 - "sims/$name" <<'SZ'
+      python3 - "$SIMS/$name" <<'SZ'
 import glob, sys, os
 fs = glob.glob(os.path.join(sys.argv[1], "specimens_complete", "*.tsv"))
 tx = []; oc = []
@@ -42,7 +52,7 @@ for f in fs:
     tx.append(len({r.split("\t")[0] for r in rows})); oc.append(len(rows))
 if tx: print(f"  median {sorted(tx)[len(tx)//2]} taxa, {sorted(oc)[len(oc)//2]} occurrences")
 SZ
-      python3 bin/trad_coverage.py "sims/$name" "$RB" complete | tail -5
+      simfbd script trad_coverage.py "$SIMS/$name" "$RB" complete | tail -5
     done
   done
 done

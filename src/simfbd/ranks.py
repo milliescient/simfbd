@@ -10,7 +10,7 @@ import os
 import sys
 import numpy as np
 
-import manifest
+from . import manifest
 
 ESS_MIN = 100.0
 BURN = 0.25
@@ -35,8 +35,8 @@ def ess(x):
     return n / (1.0 + 2.0 * s)
 
 
-def main():
-    run = sys.argv[1].rstrip("/")
+def main(argv=None):
+    run = (argv or sys.argv[1:])[0].rstrip("/")
     batch = os.path.dirname(os.path.dirname(run))
     tv = np.genfromtxt(os.path.join(batch, "true_vals.tsv"), delimiter="\t", names=True)
     ni = sum(1 for c in tv.dtype.names if c.startswith("lambda"))
@@ -48,9 +48,9 @@ def main():
     tcols = [f"{r}{i}" for r in ("lambda", "mu", "psi") for i in idx]
 
     # a chain still being written is not a posterior, so require the full sample count
-    cfg = open(os.path.join(run, "config.sh")).read()
-    conf = dict(kv.split("=", 1) for kv in cfg.replace(";", "\n").split()
-                if "=" in kv and not kv.startswith("#"))
+    conf = manifest.flat(run)
+    if "GENS" not in conf:
+        sys.exit(f"{run} has no manifest: fit it first")
     want = int(conf["GENS"]) // int(conf["PRINTGEN"]) + 1
 
     out = os.path.join(run, "output")

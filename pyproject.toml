@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simfbd"
+version = "0.1.0"
+description = "Simulate batches of fossil records and fit them, for simulation-based calibration"
+requires-python = ">=3.10"
+# numpy is what `simfbd ranks` needs. R, its packages and rb are not Python's to install:
+# `simfbd doctor` says whether this machine has them.
+dependencies = ["PyYAML", "numpy"]
+
+[project.scripts]
+simfbd = "simfbd.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+simfbd = ["scripts/*", "scripts/pyrate/*", "_commit.txt"]
