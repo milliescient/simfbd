@@ -98,7 +98,8 @@ align_skyline_index <- function(df, ni, order) {
 # in both directions, so check it against the data rather than trusting the key: a posterior
 # mean correlates better with its own truth column than with the mirrored one.
 check_alignment <- function(draws, true_vals, ni, ids) {
-  if (length(draws) < 10) return(invisible())
+  # one interval has no ordering to mirror, and a single column collapses the matrices below
+  if (length(draws) < 10 || ni < 2) return(invisible())
   for (r in c("lambda", "mu", "psi")) {
     cols <- paste0(r, "[", seq_len(ni), "]")
     if (!all(cols %in% colnames(true_vals))) next
@@ -156,6 +157,13 @@ rate_stats <- function(mf, ids, logs) {
   draws <- Map(function(f) {
     d <- read.table(f, header = TRUE)
     colnames(d) <- gsub("\\[$", "]", gsub("\\.", "[", colnames(d)))
+    # one interval is not a skyline, so the Rev template declares scalar rates and the log
+    # names them bare. Everything downstream is indexed, so index them here.
+    if (as.integer(mf$NINTERVALS) == 1) {
+      for (a in c("lambda", "mu", "psi")) {
+        if (a %in% colnames(d)) colnames(d)[colnames(d) == a] <- paste0(a, "[1]")
+      }
+    }
     posterior::as_draws_matrix(d[post_burnin(nrow(d)), rates])
   }, logs)
 
