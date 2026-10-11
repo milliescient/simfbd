@@ -55,7 +55,8 @@ directory two above it. So a study can be kept, moved or handed over as a direct
 repository at a stated commit to read it.
 
 `simfbd --version` prints that commit, in the words a manifest records it in, ending in `-dirty`
-when the code has uncommitted changes.
+when the code has uncommitted changes. `simfbd --home` prints where the code is, for a script
+that sources part of it, such as `bin/prior_sim.R`.
 
 ### Checking a batch or a run
 
