@@ -73,8 +73,9 @@ outputs:
 `simfbd status` recomputes the hashes and reports each path as `current`, `changed` or `missing`.
 For a run it also checks the edge: what the run read must be what the batch says it wrote, and a
 run fitted before its batch was extended is reported `stale`. It exits non-zero if anything is
-changed, missing or stale. The hash is `digest()` in `bin/manifest.py`: SHA-1 over each file's
-relative name and bytes, files in sorted order, first 12 hex digits. It is the hash sloop
+changed, missing or stale. The hash is `digest()` in `bin/manifest.py`: SHA-1 over one line
+per file, its relative name and the SHA-1 of its bytes, files in sorted order, first 12 hex
+digits. Hashing each file apart is what lets a reader remember the files it has seen. It is the hash sloop
 computes, so a page that pins one of these paths records the same value.
 
 A batch's manifest keeps the output hashes of every extension, and only the last can still be

@@ -152,18 +152,19 @@ def text(v):
 
 
 def digest(path):
-    """A stable hash of a file, or of every file under a directory: SHA-1 over each file's
-    relative name and bytes, files in sorted order, first 12 hex digits. The same as sloop's
-    digest(), on purpose, and kept in step with it by hand."""
+    """A stable hash of a file, or of every file under a directory: SHA-1 over one line per
+    file, its relative name and the SHA-1 of its bytes, files in sorted order, first 12 hex
+    digits. The same as sloop's digest(), on purpose, and kept in step with it by hand."""
     path = Path(path)
-    h = hashlib.sha1()
     base = path if path.is_dir() else path.parent
     files = sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else [path]
+    h = hashlib.sha1()
     for f in files:
-        h.update(str(f.relative_to(base)).encode())
+        one = hashlib.sha1()
         with f.open("rb") as fh:
             for block in iter(lambda: fh.read(1 << 20), b""):
-                h.update(block)
+                one.update(block)
+        h.update(f"{f.relative_to(base)}\0{one.hexdigest()}\n".encode())
     return h.hexdigest()[:12]
 
 
