@@ -22,16 +22,15 @@ BIN_WIDTH=1.5; BIN_MAX=36
 LAMBDA_A=0
 ORIGIN_SAMPLED=false
 GMRF_SD=0.5
-NREPS=$NREPS
 MIN_TAXA=10
 MAX_TAXA=400
 TAXA_COUNT=record
 MIN_FOSSIL_TAXA=5
 MAX_LINEAGES=400
-SIM_TIMEOUT=20
+SIM_MAX_DRAWS=100000
 CFG
       echo "### $name"
-      bash bin/run.sh "sims/$name" > "sims/$name/sim.log" 2>&1 \
+      bash bin/extend.sh "sims/$name" "$NREPS" > "sims/$name/sim.log" 2>&1 \
         && awk 'END{}' /dev/null \
         || { echo "  simulation failed, see sims/$name/sim.log"; continue; }
       python3 - "sims/$name" <<'SZ'

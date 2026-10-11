@@ -10,6 +10,8 @@ import os
 import sys
 import numpy as np
 
+import manifest
+
 ESS_MIN = 100.0
 BURN = 0.25
 
@@ -40,8 +42,7 @@ def main():
     ni = sum(1 for c in tv.dtype.names if c.startswith("lambda"))
 
     # batches with no true_vals_order key predate the fix and are oldest-first
-    man = os.path.join(batch, "manifest.tsv")
-    youngest = os.path.exists(man) and any(l.startswith("true_vals_order") for l in open(man))
+    youngest = manifest.flat(batch).get("true_vals_order") == "youngest_first"
     idx = list(range(1, ni + 1)) if youngest else list(range(ni, 0, -1))
     rates = [f"{r}[{i}]" for r in ("lambda", "mu", "psi") for i in range(1, ni + 1)]
     tcols = [f"{r}{i}" for r in ("lambda", "mu", "psi") for i in idx]

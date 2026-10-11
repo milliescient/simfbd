@@ -11,6 +11,8 @@ import os
 import sys
 import numpy as np
 
+import manifest
+
 BATCH = os.environ.get("BATCH", "sims/survivors")
 ROOT = "/research/phyloworks/simfbd"
 ESS_MIN = 100.0
@@ -41,11 +43,8 @@ def ess(x):
 
 def truth_columns():
     """Batches with no true_vals_order key predate the fix and are oldest-first."""
-    man = os.path.join(ROOT, BATCH, "manifest.tsv")
-    order = "oldest"
-    if os.path.exists(man):
-        if any(l.startswith("true_vals_order") for l in open(man)):
-            order = "youngest"
+    recorded = manifest.flat(os.path.join(ROOT, BATCH)).get("true_vals_order")
+    order = "youngest" if recorded == "youngest_first" else "oldest"
     idx = [3, 2, 1] if order == "oldest" else [1, 2, 3]
     return [f"{r}{i}" for r in ("lambda", "mu", "psi") for i in idx], order
 

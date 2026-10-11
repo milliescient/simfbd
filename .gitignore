@@ -11,3 +11,5 @@ sims/
 
 *.DS_Store
 paleobuddy_install.log
+
+__pycache__/

@@ -140,7 +140,13 @@ if (abs(AGE_MAX %% BIN_WIDTH) > 1e-9) {
 # is shallow. Deeper origins need one: the oldest interval absorbs the extra depth, so
 # diversity is exponential in it and a draw in the upper tail of lambda never terminates.
 MAX_LINEAGES <- cfg_opt("MAX_LINEAGES", Inf)
-SIM_TIMEOUT <- cfg_opt("SIM_TIMEOUT", Inf)   # seconds one bd.sim call may take
+# Ceiling on the work one bd.sim call may do, counted in the waiting times it draws. A count
+# and not a number of seconds, so which draws are refused follows from the seed alone.
+SIM_MAX_DRAWS <- cfg_opt("SIM_MAX_DRAWS", Inf)
+if (Sys.getenv("SIM_TIMEOUT") != "")
+  stop("SIM_TIMEOUT is a wall-clock limit, so a batch made under it does not reproduce from ",
+       "its seeds. Set SIM_MAX_DRAWS instead: 100000 refuses about what 20 seconds did, 200000 ",
+       "what 60 did.")
 RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen at the present
 # The record stops here rather than at zero. Occurrences younger than PRESENT are discarded
 # and a lineage still alive there is a boundary survivor, which rho then reports or misses.
@@ -359,10 +365,22 @@ expected_lineages <- function(lambda, mu, age, shifts) {
 
 # Expected size screens out the astronomical draws, but with rate shifts paleobuddy takes
 # its general path, whose cost is not a function of tree size alone, so a rare draw still
-# runs for minutes. NULL means it outran the clock and the caller should redraw. Which
-# draws hit this depends on machine load, so a batch reproduces from its seeds only up to
-# the replicates that time out; sim_timeouts reports how many that was.
-sim_timeouts <- 0
+# runs for minutes. Its cost is the waiting times it draws, over every tree bd.sim tries
+# before one meets nFinal, so those are what is counted. NULL means the call went over
+# SIM_MAX_DRAWS and the caller should redraw. The count is a function of the random stream,
+# so the same seed refuses the same draws on any machine; sim_over reports how many.
+sim_over <- 0
+sim_draws_left <- Inf     # Inf outside a bounded call, so nothing else that samples is counted
+sim_draws_most <- 0       # the most a call that finished used, which is what to set the ceiling by
+over_budget <- structure(class = c("sim_over_budget", "error", "condition"),
+                         list(message = "bd.sim went over SIM_MAX_DRAWS", call = NULL))
+if (is.finite(SIM_MAX_DRAWS)) {
+  invisible(suppressMessages(trace("rexp.var", where = asNamespace("paleobuddy"), print = FALSE,
+                         tracer = function() {
+                           sim_draws_left <<- sim_draws_left - 1
+                           if (sim_draws_left < 0) stop(over_budget)
+                         })))
+}
 # draws refused by the expected-clade screen. This one is a function of theta alone, so it
 # truncates the prior and the ranks are non-uniform by exactly that much: the number belongs
 # in the record of every batch, not just in a pilot.
@@ -371,14 +389,15 @@ sim_drawn <- 0
 bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
   call_it <- function() bd.sim(n0, lambda, mu, tMax, lShifts = lShifts,
                                mShifts = mShifts, nFinal = c(nFinal, Inf))
-  if (!is.finite(SIM_TIMEOUT)) return(call_it())
-  setTimeLimit(elapsed = SIM_TIMEOUT, transient = TRUE)
-  on.exit(setTimeLimit(elapsed = Inf))
-  tryCatch(call_it(), error = function(e) {
-    if (!grepl("elapsed time limit", conditionMessage(e))) stop(e)
-    sim_timeouts <<- sim_timeouts + 1
+  if (!is.finite(SIM_MAX_DRAWS)) return(call_it())
+  sim_draws_left <<- SIM_MAX_DRAWS
+  on.exit(sim_draws_left <<- Inf)
+  sim <- tryCatch(call_it(), sim_over_budget = function(e) {
+    sim_over <<- sim_over + 1
     NULL
   })
+  if (!is.null(sim)) sim_draws_most <<- max(sim_draws_most, SIM_MAX_DRAWS - sim_draws_left)
+  sim
 }
 
 # Reporting models, by the sim's model number. An SBC rep emits both from one
@@ -545,7 +564,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     # run BD simulation - make sure we get 10+ species
     sim <- bd_sim_bounded(n0, lambda, mu, tMax, lShifts, mShifts, nFinal)
 
-    # a draw that overshot its expectation, or outran the clock, is refused before it costs
+    # a draw that overshot its expectation, or its ceiling on work, is refused before it costs
     # a fossil sampling pass
     if (sbc && (is.null(sim) || length(sim$TS) > MAX_LINEAGES)) {
       redraw()
@@ -701,7 +720,8 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 # simulate one set
 simulate_set <- function(n_key, reps, rates, age, base_dir,
                          model = 2, unc = FALSE, extant_singletons = FALSE,
-                         diff_bins = 0, sbc = FALSE, lambda_a = 0, origin_sampled = FALSE) {
+                         diff_bins = 0, sbc = FALSE, lambda_a = 0, origin_sampled = FALSE,
+                         first = 1) {
   # outside the SBC sets, rates are prepared as normal
   if (!sbc) {
     # create shifts list
@@ -739,23 +759,48 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
   
   # create list for sim, fossil ranges, and k
   sims <- vector("list", reps)
-  
+  # An extension simulates replicates first..reps and leaves the earlier ones exactly as they
+  # are. They are not redrawn: a batch made before SIM_MAX_DRAWS replaced the wall-clock limit
+  # does not reproduce from its seeds, and the earlier replicates are the ones pages rest on.
+  if (first > 1) {
+    load(paste0(base_dir, "sim_list.RData"))
+    if (length(sims) != first - 1)
+      stop("sim_list.RData holds ", length(sims), " replicates, not the ", first - 1,
+           " the manifest counts")
+    length(sims) <- reps
+  }
+
   # reuse existing seeds when present so a re-run reproduces the same trees and
   # rates (only the retention/output changes); otherwise draw and save fresh ones
-  if (file.exists(paste0(base_dir, "seeds.RData"))) {
-    load(paste0(base_dir, "seeds.RData"))
-  } else {
+  seeds_file <- paste0(base_dir, "seeds.RData")
+  seeds <- numeric(0)
+  if (file.exists(seeds_file)) load(seeds_file)
+  if (!sbc && !length(seeds)) {
     # create seeds - reps*100 apart to ensure a lot of possible seeds
-    if (sbc) seeds <- runif(reps, 0, 69 * reps * 100) else
-      seeds <- runif(reps, (n_key - 1) * reps * 100, n_key * reps * 100)
-    save(seeds, file = paste0(base_dir, "seeds.RData"))
+    seeds <- runif(reps, (n_key - 1) * reps * 100, n_key * reps * 100)
+    save(seeds, file = seeds_file)
+  }
+  if (sbc) {
+    # seeds past first - 1 belong to an extension that did not finish, and are drawn again
+    if (first > 1) seeds <- head(seeds, first - 1)
+    need <- reps - length(seeds)
+    if (need > 0) {
+      # Whole numbers, none repeated and none already used: set.seed truncates, so two seeds
+      # in one unit interval are one replicate simulated twice.
+      repeat {
+        fresh <- sample.int(.Machine$integer.max, need)
+        if (!any(fresh %in% as.integer(seeds))) break
+      }
+      seeds <- c(seeds, fresh)
+      save(seeds, file = seeds_file)
+    }
   }
   
   # one named row per replicate, bound at the end so the names become the columns
   true_vals <- vector("list", reps)
   
   # iterate through reps
-  for (rep in 1:reps) {
+  for (rep in first:reps) {
     # print some info
     print(paste0("key: ", n_key, " rep: ", rep, 
                  " seed: ", seeds[rep]))
@@ -811,7 +856,7 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     # calculate numbers of interest
     n_sp <- c(n_sp, length(sim$TS))
     n_sampled <- c(n_sampled, length(unique(specimens$taxon)))
-    perc_sampled <- c(perc_sampled, n_sampled[rep]/n_sp[rep])
+    perc_sampled <- c(perc_sampled, tail(n_sampled, 1) / tail(n_sp, 1))
     
     # save specimens. An SBC rep reports the same record under every model, so
     # each gets its own directory alongside the one shared timeline and true values.
@@ -867,11 +912,19 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
   } else {
     # truth_of named every column when it built the row, so binding them is the whole job
     true_vals <- do.call(rbind, true_vals)
-    
+    tv_file <- paste0(base_dir, "/true_vals.tsv")
+    # An extension appends its rows, so the earlier ones stay byte for byte what they were.
+    # The columns are a function of the config, so a different header means a different one.
+    if (first > 1) {
+      had <- strsplit(readLines(tv_file, n = 1), "\t")[[1]]
+      if (!identical(had, colnames(true_vals)))
+        stop("true_vals.tsv has columns ", paste(had, collapse = " "),
+             " but these replicates have ", paste(colnames(true_vals), collapse = " "))
+    }
+
     # save true_vals
-    write.table(true_vals, 
-                paste0(base_dir, "/true_vals.tsv"),
-                col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
+    write.table(true_vals, tv_file, append = first > 1,
+                col.names = first == 1, row.names = FALSE, quote = FALSE, sep = "\t")
   }
 
   # The inference reads these rather than rederiving them, so the two cannot disagree about
@@ -891,11 +944,11 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
 
 
 # create function for simulating an SBC set
-simulate_batch <- function(reps, reps_dir, lambda_a = 0, origin_sampled = FALSE) {
+simulate_batch <- function(reps, reps_dir, lambda_a = 0, origin_sampled = FALSE, first = 1) {
   # run simulation set
   nums <- simulate_set("cov", reps, NULL, NULL, reps_dir,
                        2, FALSE, FALSE, 0, sbc = TRUE, lambda_a = lambda_a,
-                       origin_sampled = origin_sampled)
+                       origin_sampled = origin_sampled, first = first)
   
   # make nums a data frame
   nums <- as.data.frame(nums)
@@ -918,21 +971,32 @@ simulate_batch <- function(reps, reps_dir, lambda_a = 0, origin_sampled = FALSE)
 # seeds.RData is reused when present, so reruns of a batch stay comparable.
 #
 # Driven entirely by the batch config.sh, which bin/run.sh exports; BATCHDIR and NREPS
-# come from there too. Sourcing with sim_functions_only set loads the functions only.
+# come from there too. NREPS is the count the batch ends with and REPS_HAVE the count it
+# already holds, so an extension simulates only the replicates after REPS_HAVE.
+# Sourcing with sim_functions_only set loads the functions only.
 if (!exists("sim_functions_only")) {
   reps <- as.integer(cfg("NREPS"))
+  first <- as.integer(cfg_opt("REPS_HAVE", 0)) + 1L
   reps_dir <- Sys.getenv("BATCHDIR")
   if (reps_dir == "") stop("BATCHDIR is not set; bin/run.sh must export it")
   if (!grepl("/$", reps_dir)) reps_dir <- paste0(reps_dir, "/")
   smart_dir_create(reps_dir)
 
   lambda_a <- cfg("LAMBDA_A")
-  cat("simulating", reps, "reps ->", reps_dir, "\n")
+  # checked before the hours of simulating, not after: rows past the count would mean an
+  # earlier extension wrote its truth and then never reached the manifest
+  if (first > 1) {
+    had <- length(readLines(paste0(reps_dir, "true_vals.tsv"))) - 1
+    if (had != first - 1)
+      stop("true_vals.tsv holds ", had, " replicates, not the ", first - 1, " the manifest counts")
+  }
+  cat("simulating reps", first, "to", reps, "->", reps_dir, "\n")
   nums <- simulate_batch(reps, reps_dir, lambda_a = lambda_a,
-                         origin_sampled = Sys.getenv("ORIGIN_SAMPLED") == "true")
+                         origin_sampled = Sys.getenv("ORIGIN_SAMPLED") == "true",
+                         first = first)
 
-  write.table(nums, paste0(reps_dir, "nums.tsv"),
-              row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+  write.table(nums, paste0(reps_dir, "nums.tsv"), append = first > 1,
+              row.names = FALSE, col.names = first == 1, quote = FALSE, sep = "\t")
 
   # what the draws actually used, for the manifest to check against config.sh
   keys <- c("NINTERVALS","INTERVAL_WIDTH","LMEAN","LSD","MMEAN","MSD","PMEAN","PSD",
@@ -942,14 +1006,22 @@ if (!exists("sim_functions_only")) {
   if (is.finite(MAX_LINEAGES)) {
     keys <- c(keys, "MAX_LINEAGES"); vals <- c(vals, MAX_LINEAGES)
   }
-  if (is.finite(SIM_TIMEOUT)) {
-    keys <- c(keys, "SIM_TIMEOUT"); vals <- c(vals, SIM_TIMEOUT)
-    cat("draws refused for outrunning the clock:", sim_timeouts, "\n")
+  if (is.finite(SIM_MAX_DRAWS)) {
+    keys <- c(keys, "SIM_MAX_DRAWS"); vals <- c(vals, SIM_MAX_DRAWS)
+    cat(sprintf("draws refused for going over SIM_MAX_DRAWS: %d (the largest that finished used %d of %d)\n",
+                sim_over, sim_draws_most, SIM_MAX_DRAWS))
   }
   if (is.finite(MAX_LINEAGES)) {
-    tot <- sim_drawn + reps
+    tot <- sim_drawn + reps - first + 1
     cat(sprintf("draws refused by the expected-clade screen: %d of %d (%.2f%%)\n",
                 sim_screened, tot, 100 * sim_screened / max(tot, 1)))
+    # the batch's count is over every replicate it holds, not only the ones just added
+    screen_file <- paste0(reps_dir, "screened.tsv")
+    if (first > 1 && file.exists(screen_file)) {
+      was <- read.table(screen_file, sep = "\t", col.names = c("k", "v"))
+      sim_screened <- sim_screened + was$v[was$k == "screened"]
+      tot <- tot + was$v[was$k == "screened_of"]
+    }
     writeLines(sprintf("screened\t%d\nscreened_of\t%d\nscreened_frac\t%s",
                        sim_screened, tot, signif(sim_screened / max(tot, 1), 4)),
                paste0(reps_dir, "screened.tsv"))

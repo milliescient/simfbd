@@ -25,7 +25,7 @@
 #
 # usage:  Rscript bin/summarize.R sims/<batch>/runs/<name> ...
 #
-# Every path and hyperparameter comes from the run's manifest.tsv, so the scoring uses the
+# Every path and hyperparameter comes from the run's manifest, so the scoring uses the
 # same values the fit used.
 
 suppressMessages({
@@ -37,16 +37,23 @@ suppressMessages({
 
 latent_order <- c("d", "tau1", "b")   # youngest to oldest
 
-# Nothing here is inferred from a directory name. bin/run.sh writes manifest.tsv when it
+# Nothing here is inferred from a directory name. bin/run.sh writes the manifest when it
 # runs the analysis, recording the batch, the reporting model and every hyperprior it fed
 # to rb, so the scoring reads the same values the fit used and cannot be pointed at the
 # wrong truth.
+# A manifest is read through bin/manifest.py, which answers by config key for a manifest.yml
+# and for the manifest.tsv of an older batch alike. Run from the repo root, as everything is.
+read_manifest <- function(dir) {
+  out <- system2(Sys.getenv("PY", "python3"), c("bin/manifest.py", "flat", shQuote(dir)),
+                 stdout = TRUE)
+  kv <- strsplit(out, "\t", fixed = TRUE)
+  setNames(lapply(kv, function(x) paste(x[-1], collapse = "\t")), sapply(kv, `[`, 1))
+}
+
 manifest_for <- function(run) {
-  f <- file.path(run, "manifest.tsv")
-  if (!file.exists(f)) stop("no manifest in ", run, "; run bin/run.sh first")
-  m <- read.table(f, sep = "\t", header = FALSE, comment.char = "",
-                  col.names = c("key", "value"), colClasses = "character")
-  setNames(as.list(m$value), m$key)
+  m <- read_manifest(run)
+  if (!length(m)) stop("no manifest in ", run, "; run bin/run.sh first")
+  m
 }
 
 # a non-extended tree marginalizes the extinction times, so there is no d latent to score;
@@ -72,12 +79,8 @@ post_burnin <- function(n) (round(n * 0.25) + 1):n
 # predates the change and holds true_vals oldest-first.
 truth_order_of <- function(mf) {
   if (!is.null(mf$true_vals_order)) return(mf$true_vals_order)
-  f <- file.path(mf$batch_dir, "manifest.tsv")
-  if (!file.exists(f)) return("oldest_first")
-  m <- read.table(f, sep = "\t", header = FALSE, comment.char = "",
-                  col.names = c("key", "value"), colClasses = "character")
-  v <- m$value[m$key == "true_vals_order"]
-  if (length(v)) v[1] else "oldest_first"
+  v <- read_manifest(mf$batch_dir)$true_vals_order
+  if (length(v)) v else "oldest_first"
 }
 
 align_skyline_index <- function(df, ni, order) {

@@ -21,11 +21,15 @@ BURNIN <- 0.25
 # cleared this, so the pair is always the same data fitted two ways.
 ESS_MIN <- 100
 
-manifest <- function(dir, key) {
-  m <- read.table(file.path(dir, "manifest.tsv"), sep = "\t", header = FALSE,
-                  col.names = c("k", "v"), stringsAsFactors = FALSE)
-  m$v[m$k == key]
+# A manifest is read through bin/manifest.py, which answers by config key for a manifest.yml
+# and for the manifest.tsv of an older batch alike. Run from the repo root, as everything is.
+read_manifest <- function(dir) {
+  out <- system2(Sys.getenv("PY", "python3"), c("bin/manifest.py", "flat", shQuote(dir)),
+                 stdout = TRUE)
+  kv <- strsplit(out, "\t", fixed = TRUE)
+  setNames(lapply(kv, function(x) paste(x[-1], collapse = "\t")), sapply(kv, `[`, 1))
 }
+manifest <- function(dir, key) read_manifest(dir)[[key]]
 
 # posterior mean of each rate in each interval, and the worst effective sample size over
 # the nine of them. Returned in the batch's own truth order, which the caller passes in:

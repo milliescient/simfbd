@@ -12,10 +12,14 @@
 # batch's hyperpriors and may not redeclare them, and bin/run.sh feeds the same values
 # to bin/sim.R and to bin/infer.Rev, so the generating and fitting priors cannot drift.
 #
-# Both levels write a manifest.tsv recording the resolved parameters, the config hash,
+# Both levels write a manifest.yml recording the resolved parameters, the config hash,
 # the script hashes and the rb identity, and a run records the batch hash it ran against.
-# A config edited after its data or output exists is refused rather than mixed; FORCE=1
-# overrides.
+# A config edited after its data or output exists is refused rather than mixed.
+#
+# A batch does not say how many replicates it has: bin/extend.sh adds them, to a new batch
+# or to one that already has some, and the manifest counts them. A batch simulated before
+# that carries NREPS in its config.sh and a manifest.tsv, and is run as it always was, but
+# cannot be extended.
 set -u
 
 TARGET="${1:?usage: run.sh sims/<batch>[/runs/<name>]}"; TARGET="${TARGET%/}"
@@ -27,7 +31,7 @@ source "$BIN/env.sh"
 # the hyperpriors a batch owns; an analysis that sets one of these is an error
 PRIOR_KEYS="NINTERVALS INTERVAL_WIDTH LMEAN LSD MMEAN MSD PMEAN PSD AGE_MIN AGE_MAX BIN_WIDTH BIN_MAX NREPS LAMBDA_A ORIGIN_SAMPLED"
 # owned by the batch too, but optional, so configs written before it keep working
-OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT RHO MIN_TAXA MAX_TAXA GMRF_SD GMRF_SD_MEAN GMRF_SD_SD GMRF_PSI_MEAN GMRF_PSI_SD OU_THETA OU_DREF OU_PHI_A OU_PHI_B TMEAN TSD LANCH TANCH PANCH OU_SD_MEAN OU_SD_SD OU_PSI_MEAN OU_PSI_SD PRESENT REPORT_PROB TAXA_COUNT MIN_FOSSIL_TAXA"
+OPT_KEYS="MAX_LINEAGES SIM_TIMEOUT SIM_MAX_DRAWS RHO MIN_TAXA MAX_TAXA GMRF_SD GMRF_SD_MEAN GMRF_SD_SD GMRF_PSI_MEAN GMRF_PSI_SD OU_THETA OU_DREF OU_PHI_A OU_PHI_B TMEAN TSD LANCH TANCH PANCH OU_SD_MEAN OU_SD_SD OU_PSI_MEAN OU_PSI_SD PRESENT REPORT_PROB TAXA_COUNT MIN_FOSSIL_TAXA"
 
 hash_of() { sha1sum "$1" | cut -c1-12; }
 
@@ -44,6 +48,9 @@ warn_if_dirty() {
 
 die() { echo "error: $*" >&2; exit 1; }
 
+# one recorded value, from a manifest.yml or a manifest.tsv alike
+mf() { "$PY" "$BIN/manifest.py" get "$1" "$2"; }
+
 # resolve batch vs analysis from the path shape
 case "$TARGET" in
   */runs/*) RUNDIR="$TARGET"; BATCHDIR="${TARGET%%/runs/*}" ;;
@@ -52,36 +59,79 @@ esac
 [ -f "$BATCHDIR/config.sh" ] || die "no $BATCHDIR/config.sh"
 
 # ---- batch config: the single definition of the generating process ----
+BATCH_MANIFEST="$BATCHDIR/manifest.yml"; LEGACY=false
+if [ -f "$BATCHDIR/manifest.tsv" ] && [ ! -f "$BATCH_MANIFEST" ]; then
+  BATCH_MANIFEST="$BATCHDIR/manifest.tsv"; LEGACY=true
+fi
+EXTEND="${EXTEND:-0}"         # replicates to add, set by bin/extend.sh
+case "$EXTEND" in ''|*[!0-9]*) die "EXTEND must be a whole number, not '$EXTEND'" ;; esac
+if [ "$LEGACY" = false ]; then
+  unset NREPS
+  grep -Eq "(^|;)[[:space:]]*NREPS=" "$BATCHDIR/config.sh" \
+    && die "$BATCHDIR/config.sh sets NREPS, which a batch no longer declares.
+       Remove it, then: bash bin/extend.sh $BATCHDIR <how many>"
+  grep -Eq "(^|;)[[:space:]]*SIM_TIMEOUT=" "$BATCHDIR/config.sh" \
+    && die "$BATCHDIR/config.sh sets SIM_TIMEOUT, a wall-clock limit that keeps a batch from
+       reproducing from its seeds. Set SIM_MAX_DRAWS instead; see the README for a value."
+fi
 set -a; source "$BATCHDIR/config.sh"; set +a
-for k in $PRIOR_KEYS; do
-  [ -n "${!k:-}" ] || die "$BATCHDIR/config.sh does not set $k"
-done
-BATCH_RHO="${RHO:-}"          # the generating value, before a run config shadows it
 BATCH_CFG_HASH="$(hash_of "$BATCHDIR/config.sh")"
+SIM_HASH="$(hash_of "$BIN/sim.R")"
 export BATCHDIR
 
-# ---- simulate the batch, unless its data already matches this config ----
-BATCH_MANIFEST="$BATCHDIR/manifest.tsv"
+# ---- simulate the batch, or add to it, unless its data already matches this config ----
 have_batch=false
 if [ -f "$BATCH_MANIFEST" ]; then
-  prev="$(awk -F'\t' '$1=="config_hash"{print $2}' "$BATCH_MANIFEST")"
+  prev="$(mf "$BATCHDIR" config_hash)"
   if [ "$prev" = "$BATCH_CFG_HASH" ]; then
     have_batch=true
+  elif [ "$LEGACY" = false ]; then
+    die "$BATCHDIR/config.sh changed since its replicates were simulated ($prev -> $BATCH_CFG_HASH).
+       Adding to them or redrawing them would mix parameters. Make a new batch."
   elif [ "${FORCE:-0}" != "1" ]; then
     die "$BATCHDIR/config.sh changed since its data was generated ($prev -> $BATCH_CFG_HASH).
        Re-simulating would mix parameters across replicates. Delete the data or set FORCE=1."
   fi
 fi
 
-if [ "$have_batch" = false ]; then
-  echo "simulating $BATCHDIR: ${NREPS} reps, ${NINTERVALS} intervals of width ${INTERVAL_WIDTH}"
+REPS_HAVE=0
+if [ "$LEGACY" = true ]; then
+  [ "$EXTEND" = 0 ] || die "$BATCHDIR predates bin/extend.sh and cannot be extended: its
+       replicate count is part of the config its runs were checked against. Make a new batch."
+  simulate=true; [ "$have_batch" = true ] && simulate=false
+else
+  [ "$have_batch" = true ] && REPS_HAVE="$(mf "$BATCHDIR" NREPS)"
+  NREPS=$(( REPS_HAVE + EXTEND ))
+  [ "$NREPS" -gt 0 ] || die "$BATCHDIR has no replicates yet: bash bin/extend.sh $BATCHDIR <how many>"
+  if [ "$EXTEND" -gt 0 ] && [ "$REPS_HAVE" -gt 0 ]; then
+    was="$(mf "$BATCHDIR" sim_script_hash)"
+    # same config, different simulator is still a mixed batch, and nothing else would say so
+    [ "$was" = "$SIM_HASH" ] || [ "${ALLOW_SIM_CHANGE:-0}" = "1" ] \
+      || die "bin/sim.R has changed since replicates up to $REPS_HAVE were simulated ($was -> $SIM_HASH).
+       Make a new batch, or set ALLOW_SIM_CHANGE=1 to add to this one; the manifest records both."
+  fi
+  simulate=false; [ "$EXTEND" -gt 0 ] && simulate=true
+fi
+export NREPS REPS_HAVE
+for k in $PRIOR_KEYS; do
+  [ -n "${!k:-}" ] || die "$BATCHDIR/config.sh does not set $k"
+done
+BATCH_RHO="${RHO:-}"          # the generating value, before a run config shadows it
+
+if [ "$simulate" = true ]; then
+  echo "simulating $BATCHDIR: reps $(( REPS_HAVE + 1 )) to ${NREPS}, ${NINTERVALS} intervals of width ${INTERVAL_WIDTH}"
   warn_if_dirty
   "$RSCRIPT" "$BIN/sim.R" || die "simulation failed"
+  if [ "$LEGACY" = false ]; then
+    "$PY" "$BIN/manifest.py" write-batch "$BATCHDIR" first=$(( REPS_HAVE + 1 )) last="$NREPS" \
+      config_hash="$BATCH_CFG_HASH" sim_script_hash="$SIM_HASH" \
+      simfbd_commit="$(commit_of "$ROOT")" || die "could not write $BATCH_MANIFEST"
+  else
   {
     printf 'kind\tbatch\n'
     printf 'batch\t%s\n' "$(basename "$BATCHDIR")"
     printf 'config_hash\t%s\n' "$BATCH_CFG_HASH"
-    printf 'sim_script_hash\t%s\n' "$(hash_of "$BIN/sim.R")"
+    printf 'sim_script_hash\t%s\n' "$SIM_HASH"
     printf 'simfbd_commit\t%s\n' "$(commit_of "$ROOT")"
     printf 'created\t%s\n' "$(date -Is)"
     # batches simulated before this key was added hold true_vals oldest-first
@@ -91,6 +141,7 @@ if [ "$have_batch" = false ]; then
     # what the theta screen actually refused, measured rather than configured
     [ -f "$BATCHDIR/screened.tsv" ] && cat "$BATCHDIR/screened.tsv"
   } > "$BATCH_MANIFEST"
+  fi
 
   # the simulator reports what it actually drew with; disagreement means a key did not reach it
   if [ -f "$BATCHDIR/sim_params.tsv" ]; then
@@ -111,7 +162,7 @@ for k in $PRIOR_KEYS; do
   grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
     && die "$RUNDIR/config.sh sets $k, which the batch owns. Remove it, or make a new batch."
 done
-for k in MAX_LINEAGES SIM_TIMEOUT; do
+for k in MAX_LINEAGES SIM_TIMEOUT SIM_MAX_DRAWS NREPS; do
   grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
     && die "$RUNDIR/config.sh sets $k, which the batch owns. Remove it, or make a new batch."
 done
@@ -145,10 +196,11 @@ SPECIMENS="specimens_$REPORTING"
 [ "$NINTERVALS" -gt 1 ] && SKY=true || SKY=false
 
 RUN_CFG_HASH="$(hash_of "$RUNDIR/config.sh")"
-RUN_MANIFEST="$RUNDIR/manifest.tsv"
+RUN_MANIFEST="$RUNDIR/manifest.yml"
+[ "$LEGACY" = true ] && RUN_MANIFEST="$RUNDIR/manifest.tsv"
 if [ -f "$RUN_MANIFEST" ] && [ "${FORCE:-0}" != "1" ]; then
-  pb="$(awk -F'\t' '$1=="batch_config_hash"{print $2}' "$RUN_MANIFEST")"
-  pr="$(awk -F'\t' '$1=="config_hash"{print $2}' "$RUN_MANIFEST")"
+  pb="$(mf "$RUNDIR" batch_config_hash)"
+  pr="$(mf "$RUNDIR" config_hash)"
   [ "$pb" = "$BATCH_CFG_HASH" ] || die "$RUNDIR ran against batch config $pb, now $BATCH_CFG_HASH. Its output would mix. Delete output/ or set FORCE=1."
   [ "$pr" = "$RUN_CFG_HASH" ]   || die "$RUNDIR/config.sh changed since its output was written ($pr -> $RUN_CFG_HASH). Delete output/ or set FORCE=1."
 fi
@@ -250,6 +302,18 @@ export RBIN BIN TEMPLATE BATCHDIR SPECIMENS OUTDIR AUXDIR RUNDIR SKY COMPLETE CO
 
 seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
 
+rb_bin="$(command -v "$RBIN" || echo "$RBIN")"
+rb_md5="$(md5sum "$rb_bin" 2>/dev/null | cut -c1-12 || echo unknown)"
+# the binary carries its own git describe, so this names what actually ran even after the
+# source tree moves on. An md5 identifies a build, not a commit: rb embeds its build date.
+rb_commit="$(strings "$rb_bin" 2>/dev/null | grep -m1 -E '^[A-Za-z0-9._-]+-[0-9]+-g[0-9a-f]{6,}$' || echo unknown)"
+if [ "$LEGACY" = false ]; then
+  "$PY" "$BIN/manifest.py" write-run "$RUNDIR" batch_dir="$BATCHDIR" \
+    batch_config_hash="$BATCH_CFG_HASH" config_hash="$RUN_CFG_HASH" replicates="$NREPS" \
+    specimens="$SPECIMENS" simfbd_commit="$(commit_of "$ROOT")" \
+    infer_script_hash="$(hash_of "$TEMPLATE")" rb_path="$rb_bin" rb_md5="$rb_md5" \
+    rb_commit="$rb_commit" || die "could not write $RUN_MANIFEST"
+else
 {
   printf 'kind\trun\n'
   printf 'run\t%s\n' "$(basename "$RUNDIR")"
@@ -264,12 +328,9 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   printf 'survivors\t%s\n' "$SURVIVORS"
   printf 'drop_present_only\t%s\n' "$DROP_PRESENT_ONLY"
   printf 'simfbd_commit\t%s\n' "$(commit_of "$ROOT")"
-  rb_bin="$(command -v "$RBIN" || echo "$RBIN")"
   printf 'rb_path\t%s\n' "$rb_bin"
-  printf 'rb_md5\t%s\n' "$(md5sum "$rb_bin" 2>/dev/null | cut -c1-12 || echo unknown)"
-  # the binary carries its own git describe, so this names what actually ran even after the
-  # source tree moves on. An md5 identifies a build, not a commit: rb embeds its build date.
-  printf 'rb_commit\t%s\n' "$(strings "$rb_bin" 2>/dev/null | grep -m1 -E '^[A-Za-z0-9._-]+-[0-9]+-g[0-9a-f]{6,}$' || echo unknown)"
+  printf 'rb_md5\t%s\n' "$rb_md5"
+  printf 'rb_commit\t%s\n' "$rb_commit"
   printf 'created\t%s\n' "$(date -Is)"
   printf 'specimens\t%s\n' "$SPECIMENS"
   for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN ORIGIN_PRIOR; do printf '%s\t%s\n' "$k" "${!k}"; done
@@ -277,6 +338,7 @@ seq 1 "$NREPS" | xargs -P "$NCORES" -I {} bash -c 'run_one "$@"' _ {}
   for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
   for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
 } > "$RUN_MANIFEST"
+fi
 
 nfail=$(wc -l < "$RUNDIR/failures.log")
 echo "logs: $(ls "$OUTDIR"/rep_*.log 2>/dev/null | wc -l)/$NREPS, $nfail failed"

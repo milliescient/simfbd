@@ -22,15 +22,14 @@ BIN_WIDTH=1.5; BIN_MAX=36
 LAMBDA_A=0
 ORIGIN_SAMPLED=false
 GMRF_SD=0.4
-NREPS=$NREPS
 MIN_TAXA=$lo
 MAX_TAXA=$hi
 TAXA_COUNT=record
 MIN_FOSSIL_TAXA=5
 MAX_LINEAGES=400
-SIM_TIMEOUT=20
+SIM_MAX_DRAWS=100000
 CFG
-    if bash bin/run.sh "sims/$name" > "sims/$name/sim.log" 2>&1; then
+    if bash bin/extend.sh "sims/$name" "$NREPS" > "sims/$name/sim.log" 2>&1; then
       python3 bin/explore_report.py "sims/$name" "$RB"
     else
       echo "  $name: simulation failed"; tail -2 "sims/$name/sim.log"

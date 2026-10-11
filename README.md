@@ -17,17 +17,19 @@ bin/                 shared scripts; one of each, no per-analysis copies
   sim.R              paleobuddy simulator; emits every reporting model in one pass
   infer.Rev          rb inference; every prior arrives as a variable, none hardcoded
   run.sh             driver: bash bin/run.sh sims/<batch>[/runs/<name>]
+  extend.sh          add replicates to a batch: bash bin/extend.sh sims/<batch> <how many>
+  manifest.py        writes and reads manifest.yml, and says what every config key means
   summarize.R        SBC scoring and figures, driven by the run's manifest
   bias.R             dnBDS against dnFBDRP on identical data, by sampled fraction
   env.sh             toolchain paths; monitor.sh, kill.sh generic helpers
 sims/batch1/
   config.sh          the generating process and every hyperprior
-  manifest.tsv       what was actually used, written by bin/run.sh
+  manifest.yml       what was actually used and how many replicates exist, written by bin/run.sh
   specimens_complete/  specimens_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
     config.sh        which reporting model to read, and how to fit it
-    manifest.tsv     + the batch hash it ran against, and the rb identity
+    manifest.yml     + the batch hash it ran against, and the rb identity
     output/  aux/  results/
 bin/pyrate/          PyRate and BDS inference scripts; sampling/ holds their prior.rev
 ```
@@ -35,10 +37,22 @@ bin/pyrate/          PyRate and BDS inference scripts; sampling/ holds their pri
 ## Running
 
 ```sh
-bash bin/run.sh sims/batch1                      # simulate the batch
-bash bin/run.sh sims/batch1/runs/fbdrp_firstlast # simulate if needed, then infer
+bash bin/extend.sh sims/batch1 200               # simulate the batch's first 200 replicates
+bash bin/run.sh sims/batch1/runs/fbdrp_firstlast # infer on every replicate not yet fitted
 Rscript bin/summarize.R sims/batch1/runs/fbdrp_firstlast
+bash bin/extend.sh sims/batch1 800               # later: 800 more, and the batch has 1000
 ```
+
+A batch's `config.sh` does not say how many replicates it has; the manifest counts them.
+`bin/extend.sh` reads the batch's own config, so new replicates cannot be drawn under
+different settings, and it refuses if the config or `bin/sim.R` has changed since the earlier
+ones. Those are never redrawn or rewritten: an extension simulates only what is missing,
+appends rows to `true_vals.tsv` and `nums.tsv`, and adds its per-replicate files beside the
+others. Anything that pinned a hash of `true_vals.tsv`, a specimens directory,
+`sim_list.RData` or the manifest will see that hash move, because those did grow.
+
+A batch simulated before this has `NREPS` in its config and a `manifest.tsv`. It runs as it
+always did, its manifest is read by the same scripts, and it cannot be extended.
 
 `sims/smoke/` is the same thing at 6 replicates and short chains, for checking the
 pipeline end to end in about a minute.
@@ -46,6 +60,16 @@ pipeline end to end in about a minute.
 Batches that differ only in the origin prior pool into a range of tree sizes. A deep
 origin wants `MAX_LINEAGES`, a ceiling on lineages ever born, because it leaves the oldest
 interval unbounded and a draw in the upper tail of lambda then never finishes simulating.
+
+`SIM_MAX_DRAWS` is the second ceiling, on the work one simulation may do. It counts the
+waiting times the birth-death simulator draws, across every tree it tries, and refuses the
+draw when the count is passed. The count follows from the random stream, so the same seeds
+refuse the same draws on any machine and a batch reproduces from `seeds.RData`. It replaces
+`SIM_TIMEOUT`, which counted seconds and so refused whatever the machine was too busy for;
+a new batch that sets `SIM_TIMEOUT` is refused. A tree of n lineages takes about 3n draws,
+so keep the ceiling several times `MAX_LINEAGES`: 100000 cuts a runaway off after roughly
+what 20 seconds used to, 200000 after roughly 60. The simulator prints how many draws were
+refused and the most any finished simulation used.
 
 That ceiling is the one filter that costs something. It is applied by refusing the draw
 before it is simulated, so it is a function of theta alone: it truncates the prior the
@@ -91,15 +115,30 @@ that way:
   `runs/*/config.sh`, so there is never a second definition to disagree with.
 - **The simulator reports what it drew with.** `sim_params.tsv` is compared against the
   config, so a key that fails to reach it is caught rather than assumed.
-- **An edited config is refused, not mixed.** Each `manifest.tsv` records the hash of the
+- **An edited config is refused, not mixed.** Each manifest records the hash of the
   config that produced its data, and a run records the batch hash it ran against.
   Changing either after the fact stops the run instead of quietly mixing parameters
-  across replicates. `FORCE=1` overrides.
+  across replicates. `FORCE=1` overrides for a run, and for a batch with a `manifest.tsv`.
 
-`manifest.tsv` is what makes an output self-describing: it names the batch, the reporting
+`manifest.yml` is what makes an output self-describing: it names the batch, the reporting
 model, the resolved hyperpriors, the config hashes, the script hashes and the rb binary.
 `bin/summarize.R` reads it rather than re-deriving anything from directory names, so a
 result cannot be scored against the wrong truth.
+
+It is also where a config key is explained. `config.sh` keeps short shell names because
+`bin/run.sh` sources it, so the manifest writes each setting under a name that says what it
+is, with the config key beside it:
+
+```yaml
+rate_priors:
+  fossil_sampling:
+    log_mean: -0.125     # PMEAN
+    log_sd: 0.5          # PSD
+```
+
+The tables behind that are `BATCH_SETTINGS` and `RUN_SETTINGS` in `bin/manifest.py`. A new config key gets a line there,
+with a name a reader can understand without opening `bin/sim.R`. Scripts read a manifest
+through `bin/manifest.py get` and `flat`, which answer by config key for either format.
 
 ## Scope
 
