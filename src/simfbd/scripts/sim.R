@@ -387,6 +387,10 @@ if (is.finite(SIM_MAX_DRAWS)) {
 sim_filtered <- 0
 sim_drawn <- 0
 bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
+  # paleobuddy refuses shifts alongside a constant rate, and the lone shift a single
+  # interval leaves is at the process start, so it is not one
+  if (length(lambda) < 2) lShifts <- NULL
+  if (length(mu) < 2)     mShifts <- NULL
   call_it <- function() bd.sim(n0, lambda, mu, tMax, lShifts = lShifts,
                                mShifts = mShifts, nFinal = c(nFinal, Inf))
   if (!is.finite(SIM_MAX_DRAWS)) return(call_it())
@@ -573,7 +577,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 
     # run fossil sampling
     fossils <- suppressMessages(sample.clade(sim, psi, tMax,
-                                             rShifts = pShifts,
+                                             rShifts = if (length(psi) < 2) NULL else pShifts,
                                              bins = bins,
                                              returnAll = TRUE))
 
