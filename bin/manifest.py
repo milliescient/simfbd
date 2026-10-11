@@ -5,19 +5,27 @@
     manifest.py write-run   DIR field=value ...
     manifest.py get  DIR KEY                      # one value, by config key or record field
     manifest.py flat DIR                          # every value, as key<TAB>value lines
+    manifest.py status DIR                        # does the directory still match its manifest
 
 A manifest says what a batch or a run is, in words. config.sh keeps its short shell names,
 because bin/run.sh sources it, and the SETTINGS tables below are the one place that says what each of
 them means: every line of a manifest carries the name a reader wants, and beside it the
 config key it came from.
 
+Beside the settings a manifest records what a notebook's lock records, in the same words, so
+a batch or a run can be checked with no notebook: `uses` names the code that ran as
+name@version, and `inputs` and `outputs` give each path with its hash. The hash is digest()
+below, which is the one sloop computes, so a path hashes the same in both.
+
 Scripts read a manifest through `get` and `flat`, which answer by config key. A batch
 simulated before manifest.yml existed has a manifest.tsv of key<TAB>value lines instead, and
 both commands read that too, so a script never has to know which kind it was handed.
 """
+import hashlib
 import os
 import re
 import sys
+from pathlib import Path
 
 import yaml
 
@@ -114,13 +122,12 @@ BATCH_RECORD = {
     "screened_frac": "prior_screen.fraction",
 }
 RUN_RECORD = {
-    "kind": "kind", "run": "run", "batch": "batch", "batch_dir": "batch_dir",
+    "kind": "kind", "run": "run", "batch": "batch",
     "batch_config_hash": "batch_config_hash", "config_hash": "config_hash",
     "true_vals_order": "true_vals_order", "NREPS": "replicates", "specimens": "specimens",
-    "simfbd_commit": "toolchain.simfbd_commit",
     "infer_script_hash": "toolchain.infer_script_hash",
     "rb_path": "toolchain.rb_path", "rb_md5": "toolchain.rb_md5",
-    "rb_commit": "toolchain.rb_commit",
+    "rb_describe": "toolchain.rb_describe",
     # the names a manifest.tsv used for these two
     "survivors": "inference.survivors", "drop_present_only": "inference.drop_present_only_taxa",
 }
@@ -142,6 +149,37 @@ def text(v):
     if WORD.fullmatch(v) and v.lower() not in RESERVED:
         return v
     return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def digest(path):
+    """A stable hash of a file, or of every file under a directory: SHA-1 over each file's
+    relative name and bytes, files in sorted order, first 12 hex digits. The same as sloop's
+    digest(), on purpose, and kept in step with it by hand."""
+    path = Path(path)
+    h = hashlib.sha1()
+    base = path if path.is_dir() else path.parent
+    files = sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else [path]
+    for f in files:
+        h.update(str(f.relative_to(base)).encode())
+        with f.open("rb") as fh:
+            for block in iter(lambda: fh.read(1 << 20), b""):
+                h.update(block)
+    return h.hexdigest()[:12]
+
+
+# what a simulation leaves in a batch for something else to read
+def batch_outputs(d):
+    names = ["true_vals.tsv", "nums.tsv", "times", "true_ranges", "ou_lags.tsv"]
+    names += sorted(n for n in os.listdir(d) if n.startswith("specimens_"))
+    return [n for n in names if os.path.exists(os.path.join(d, n))]
+
+
+def used(uses, name):
+    """The version of one thing in a `uses` list of name@version."""
+    for u in uses or []:
+        if str(u).split("@", 1)[0] == name:
+            return str(u).split("@", 1)[1]
+    return None
 
 
 def dig(doc, path):
@@ -202,6 +240,8 @@ def flat(d):
                 if "\t" in line:
                     k, v = line.rstrip("\n").split("\t", 1)
                     out[k] = v              # a run repeats RHO; the later line is the fitted one
+        if out.get("kind") == "run":
+            out["batch_dir"] = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
         return out
     out = {}
     run = doc.get("kind") == "run"
@@ -211,8 +251,15 @@ def flat(d):
             out[name] = shown(v)
     if not run and doc.get("simulated"):
         # what the newest replicates were simulated with, which is what an extension must match
-        out["sim_script_hash"] = shown(doc["simulated"][-1]["sim_script_hash"])
-        out["simfbd_commit"] = shown(doc["simulated"][-1]["simfbd_commit"])
+        last = doc["simulated"][-1]
+        out["sim_script_hash"] = shown(last["sim_script_hash"])
+        out["simfbd_commit"] = shown(used(last.get("uses"), "simfbd") or last.get("simfbd_commit"))
+    if run:
+        # a run sits at <batch>/runs/<name>, wherever the batch is, so this is never recorded
+        out["batch_dir"] = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
+        tc = doc.get("toolchain") or {}
+        out["simfbd_commit"] = shown(used(doc.get("uses"), "simfbd") or tc.get("simfbd_commit"))
+        out["rb_commit"] = shown(tc.get("rb_describe") or tc.get("rb_commit"))
     for key, where, _ in BATCH_SETTINGS:
         v = dig(doc, ("simulation." if run else "") + where)
         # a manifest.tsv wrote every key, and readers test for this word
@@ -251,7 +298,8 @@ def write_batch(d, f):
                          f"so the next cannot start at {first}")
     simulated.append({"replicates": f"{first}-{last}",
                       "sim_script_hash": f["sim_script_hash"],
-                      "simfbd_commit": f["simfbd_commit"]})
+                      "uses": [f"simfbd@{f['simfbd_commit']}"],
+                      "outputs": {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}})
     lines = [
         "# Written by bin/run.sh. Each setting is followed by its config.sh key.",
         "kind: batch",
@@ -261,12 +309,18 @@ def write_batch(d, f):
         "true_vals_order: youngest_first",
         "",
         f"replicates: {last}",
-        "simulated:                # one entry per bin/extend.sh",
+        "# One entry per extension. outputs are the batch's files as they stood after it, so",
+        "# only the last entry can still be checked: simfbd status <batch>",
+        "simulated:",
     ]
     for s in simulated:
+        uses = s.get("uses") or [f"simfbd@{s['simfbd_commit']}"]
         lines += [f"  - replicates: {text(s['replicates'])}",
-                  f"    sim_script_hash: {text(s['sim_script_hash'])}",
-                  f"    simfbd_commit: {text(s['simfbd_commit'])}"]
+                  f"    uses: [{', '.join(text(u) for u in uses)}]",
+                  f"    sim_script_hash: {text(s['sim_script_hash'])}"]
+        if s.get("outputs"):
+            lines.append("    outputs:")
+            lines += [f"      {n}: {text(h)}" for n, h in s["outputs"].items()]
     screen = os.path.join(d, "screened.tsv")
     if os.path.exists(screen):
         with open(screen) as fh:
@@ -291,17 +345,27 @@ def write_run(d, f):
         "kind: run",
         f"run: {text(os.path.basename(os.path.normpath(d)))}",
         f"batch: {text(batch['batch'])}",
-        f"batch_dir: {text(f['batch_dir'])}",
         f"batch_config_hash: {text(f['batch_config_hash'])}",
         f"config_hash: {text(f['config_hash'])}",
         f"true_vals_order: {text(batch['true_vals_order'])}",
         f"replicates: {f['replicates']}            # in the batch when this last ran",
         f"specimens: {text(f['specimens'])}",
         "",
+        "# the code that ran, as name@version; rb's is the commit its binary was built from",
+        f"uses: [{text('simfbd@' + f['simfbd_commit'])}, "
+        f"{text('rb@' + f['rb_commit'].rsplit('-g', 1)[-1])}]",
+        "# read from the batch, and written here; simfbd status <run> checks both",
+        "inputs:",
+        f"  {f['specimens']}: {text(digest(os.path.join(f['batch_dir'], f['specimens'])))}",
+        "outputs:",
+        f"  output: {text(digest(os.path.join(d, 'output')))}",
+        "",
         "toolchain:",
+        f"  infer_script_hash: {text(f['infer_script_hash'])}",
+        f"  rb_path: {text(f['rb_path'])}",
+        f"  rb_md5: {text(f['rb_md5'])}",
+        f"  rb_describe: {text(f['rb_commit'])}",
     ]
-    for k in ("simfbd_commit", "infer_script_hash", "rb_path", "rb_md5", "rb_commit"):
-        lines.append(f"  {k}: {text(f[k])}")
     lines += ["", "# ---- the fit, from this run's config.sh ----"]
     lines += settings_lines(RUN_SETTINGS, os.environ.get)
     lines += ["", f"# ---- the generating process, copied from {batch_path} ----",
@@ -310,6 +374,80 @@ def write_run(d, f):
                             lambda k: None if sim.get(k) == "none" else sim.get(k),
                             indent="  ")
     save(d, lines)
+
+
+def sha1_12(path):
+    with open(path, "rb") as fh:
+        return hashlib.sha1(fh.read()).hexdigest()[:12]
+
+
+def status(d):
+    """Whether a batch or a run still matches its manifest. Returns the number of problems."""
+    path, doc = find(d)
+    if path is None:
+        raise SystemExit(f"manifest.py: no manifest in {d}")
+    if doc is None:
+        print(f"{d}: manifest.tsv predates recorded hashes, so there is nothing to check")
+        return 0
+    rows, bad = [], 0
+
+    def row(state, what, note=""):
+        nonlocal bad
+        bad += state in ("changed", "missing", "stale")
+        rows.append((state, what, note))
+
+    def compare(base, recorded, label=""):
+        for name, want in (recorded or {}).items():
+            at = os.path.join(base, name)
+            if not os.path.exists(at):
+                row("missing", label + name)
+            else:
+                got = digest(at)
+                row("current" if got == want else "changed", label + name,
+                    "" if got == want else f"{want} -> {got}")
+
+    cfg = os.path.join(d, "config.sh")
+    if os.path.exists(cfg):
+        got = sha1_12(cfg)
+        row("current" if got == doc.get("config_hash") else "changed", "config.sh",
+            "" if got == doc.get("config_hash") else f"{doc.get('config_hash')} -> {got}")
+    else:
+        row("missing", "config.sh")
+
+    if doc.get("kind") == "run":
+        batch_dir = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
+        _, batch = find(batch_dir)
+        for u in doc.get("uses") or []:
+            row("uses", u)
+        compare(batch_dir, doc.get("inputs"), "batch: ")
+        compare(d, doc.get("outputs"))
+        if not doc.get("inputs") and not doc.get("outputs"):
+            row("unrecorded", "inputs and outputs", "written before hashes were recorded")
+        if batch:
+            if batch.get("config_hash") != doc.get("batch_config_hash"):
+                row("changed", "batch: config.sh",
+                    f"{doc.get('batch_config_hash')} -> {batch.get('config_hash')}")
+            # the edge: what this run read must be what the batch says it wrote
+            wrote = (batch.get("simulated") or [{}])[-1].get("outputs") or {}
+            for name, read in (doc.get("inputs") or {}).items():
+                if name in wrote and wrote[name] != read:
+                    row("stale", "batch: " + name,
+                        f"the batch has changed since this run was fitted "
+                        f"({doc.get('replicates')} -> {batch.get('replicates')} replicates)")
+    else:
+        last = (doc.get("simulated") or [{}])[-1]
+        for u in last.get("uses") or []:
+            row("uses", u)
+        if last.get("outputs"):
+            compare(d, last["outputs"])
+        else:
+            row("unrecorded", "outputs", "simulated before hashes were recorded")
+
+    width = max(len(s) for s, _, _ in rows)
+    print(f"{d}  ({doc.get('kind')}, {doc.get('replicates')} replicates)")
+    for state, what, note in rows:
+        print(f"  {state.ljust(width)}  {what}" + (f"  ({note})" if note else ""))
+    return bad
 
 
 def main(argv):
@@ -327,6 +465,10 @@ def main(argv):
     elif cmd == "flat":
         for k, v in flat(d).items():
             print(f"{k}\t{v}")
+    elif cmd == "status":
+        sys.exit(1 if sum(status(x.rstrip("/")) for x in [d] + rest) else 0)
+    elif cmd == "digest":
+        print(digest(d))
     else:
         raise SystemExit(__doc__)
 

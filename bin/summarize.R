@@ -42,10 +42,12 @@ latent_order <- c("d", "tau1", "b")   # youngest to oldest
 # to rb, so the scoring reads the same values the fit used and cannot be pointed at the
 # wrong truth.
 # A manifest is read through bin/manifest.py, which answers by config key for a manifest.yml
-# and for the manifest.tsv of an older batch alike. Run from the repo root, as everything is.
+# and for the manifest.tsv of an older batch alike. It is found beside this script, so a batch
+# can be anywhere and this can be run from anywhere.
+BIN <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
 read_manifest <- function(dir) {
-  out <- system2(Sys.getenv("PY", "python3"), c("bin/manifest.py", "flat", shQuote(dir)),
-                 stdout = TRUE)
+  out <- system2(Sys.getenv("PY", "python3"),
+                 c(shQuote(file.path(BIN, "manifest.py")), "flat", shQuote(dir)), stdout = TRUE)
   kv <- strsplit(out, "\t", fixed = TRUE)
   setNames(lapply(kv, function(x) paste(x[-1], collapse = "\t")), sapply(kv, `[`, 1))
 }

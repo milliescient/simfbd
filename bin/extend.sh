@@ -1,8 +1,8 @@
 #!/bin/bash
 # Add replicates to a batch.
 #
-#   bash bin/extend.sh sims/<batch> 200      # a new batch gets its first 200
-#   bash bin/extend.sh sims/<batch> 800      # and now it has 1000
+#   simfbd extend <batch> 200      # a new batch gets its first 200
+#   simfbd extend <batch> 800      # and now it has 1000
 #
 # The batch's own config.sh is the only source of settings, so the new replicates cannot be
 # drawn under different ones, and a config or a simulator that has changed since the earlier

@@ -1,8 +1,10 @@
 #!/bin/bash
 # Run one batch or one analysis.
 #
-#   bash bin/run.sh sims/<batch>                  # simulate the batch only
-#   bash bin/run.sh sims/<batch>/runs/<name>      # simulate if needed, then infer
+#   bash bin/run.sh <batch>                  # simulate the batch only
+#   bash bin/run.sh <batch>/runs/<name>      # simulate if needed, then infer
+#
+# bin/simfbd is the front door: `simfbd fit <batch>/runs/<name>` is this script.
 #
 # A batch owns the generating process and every hyperprior. One simulation pass emits
 # all reporting models from one record, so the analyses under it share a timeline and
@@ -22,9 +24,19 @@
 # cannot be extended.
 set -u
 
-TARGET="${1:?usage: run.sh sims/<batch>[/runs/<name>]}"; TARGET="${TARGET%/}"
+TARGET="${1:?usage: run.sh <batch>[/runs/<name>]}"; TARGET="${TARGET%/}"
 BIN="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$BIN/.." && pwd)"
+# A batch is a directory anywhere. A relative path is looked for where the command was typed
+# and then under the repository, which is where sims/<batch> has always been found; a batch
+# inside the repository is still named relative to it, so what is printed and recorded for one
+# does not depend on where the command was typed.
+case "$TARGET" in
+  /*) ;;
+  *) if [ -f "$PWD/${TARGET%%/runs/*}/config.sh" ]; then TARGET="$PWD/$TARGET"; else TARGET="$ROOT/$TARGET"; fi ;;
+esac
+TARGET="$(realpath -m "$TARGET")"
+case "$TARGET" in "$ROOT"/*) TARGET="${TARGET#"$ROOT"/}" ;; esac
 cd "$ROOT" || exit 1
 source "$BIN/env.sh"
 
@@ -343,4 +355,4 @@ fi
 nfail=$(wc -l < "$RUNDIR/failures.log")
 echo "logs: $(ls "$OUTDIR"/rep_*.log 2>/dev/null | wc -l)/$NREPS, $nfail failed"
 echo "manifest: $RUN_MANIFEST"
-echo "now run: $RSCRIPT bin/summarize.R $RUNDIR"
+echo "now run: simfbd summarize $RUNDIR"

@@ -16,9 +16,10 @@ batch's hyperpriors and may not redeclare them.
 bin/                 shared scripts; one of each, no per-analysis copies
   sim.R              paleobuddy simulator; emits every reporting model in one pass
   infer.Rev          rb inference; every prior arrives as a variable, none hardcoded
-  run.sh             driver: bash bin/run.sh sims/<batch>[/runs/<name>]
-  extend.sh          add replicates to a batch: bash bin/extend.sh sims/<batch> <how many>
-  manifest.py        writes and reads manifest.yml, and says what every config key means
+  simfbd             the front door: simfbd extend | fit | status | summarize | ranks | --version
+  run.sh             driver behind `simfbd fit`: bash bin/run.sh <batch>[/runs/<name>]
+  extend.sh          behind `simfbd extend`: bash bin/extend.sh <batch> <how many>
+  manifest.py        writes, reads and checks manifest.yml, and says what every config key means
   summarize.R        SBC scoring and figures, driven by the run's manifest
   bias.R             dnBDS against dnFBDRP on identical data, by sampled fraction
   env.sh             toolchain paths; monitor.sh, kill.sh generic helpers
@@ -37,11 +38,48 @@ bin/pyrate/          PyRate and BDS inference scripts; sampling/ holds their pri
 ## Running
 
 ```sh
-bash bin/extend.sh sims/batch1 200               # simulate the batch's first 200 replicates
-bash bin/run.sh sims/batch1/runs/fbdrp_firstlast # infer on every replicate not yet fitted
-Rscript bin/summarize.R sims/batch1/runs/fbdrp_firstlast
-bash bin/extend.sh sims/batch1 800               # later: 800 more, and the batch has 1000
+simfbd extend sims/batch1 200                # simulate the batch's first 200 replicates
+simfbd fit sims/batch1/runs/fbdrp_firstlast  # infer on every replicate not yet fitted
+simfbd summarize sims/batch1/runs/fbdrp_firstlast
+simfbd extend sims/batch1 800                # later: 800 more, and the batch has 1000
+simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
 ```
+
+`simfbd` is `bin/simfbd`: call it by its path, or link it onto `PATH`, and it finds the rest of
+`bin/` beside itself. The scripts behind it can still be called directly.
+
+A batch is a directory holding a `config.sh`, and it can be anywhere on disk. A relative path is
+looked for where the command is typed and then under this repository, so `sims/batch1` means what
+it always has. Nothing in a manifest records where a batch is: a run finds its batch as the
+directory two above it. So a study can be kept, moved or handed over as a directory, with this
+repository at a stated commit to read it.
+
+`simfbd --version` prints that commit, in the words a manifest records it in, ending in `-dirty`
+when the code has uncommitted changes.
+
+### Checking a batch or a run
+
+A manifest records what a notebook's lock records, in the same words. `uses` names the code that
+ran as `name@version`, and `inputs` and `outputs` give each path with its hash:
+
+```yaml
+uses: ["simfbd@f0c6fe5", "rb@28e5b2"]
+inputs:
+  specimens_complete: a108a52a6513    # read from the batch
+outputs:
+  output: caf92bd48090                # written by this run
+```
+
+`simfbd status` recomputes the hashes and reports each path as `current`, `changed` or `missing`.
+For a run it also checks the edge: what the run read must be what the batch says it wrote, and a
+run fitted before its batch was extended is reported `stale`. It exits non-zero if anything is
+changed, missing or stale. The hash is `digest()` in `bin/manifest.py`: SHA-1 over each file's
+relative name and bytes, files in sorted order, first 12 hex digits. It is the hash sloop
+computes, so a page that pins one of these paths records the same value.
+
+A batch's manifest keeps the output hashes of every extension, and only the last can still be
+checked, since an extension changes the files. A batch or run written before hashes were recorded
+is reported as `unrecorded`, and one with a `manifest.tsv` has nothing to check.
 
 A batch's `config.sh` does not say how many replicates it has; the manifest counts them.
 `bin/extend.sh` reads the batch's own config, so new replicates cannot be drawn under
