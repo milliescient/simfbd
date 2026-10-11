@@ -1,0 +1,72 @@
+# Every setting a batch's config.yml can hold, with the value it takes when the config leaves
+# it out. One marked required has none. This file is where those values come from: simfbd
+# reads it, so what it says is what happens. `simfbd config default batch` prints it.
+# Times are in whatever unit the rates are per.
+
+timeline:
+  rate_intervals:                  # required. piecewise-constant rate intervals
+  interval_width:                  # required. width of each interval; the oldest runs on to the origin
+  record_stops_at: 0               # the record ends here, not at zero; younger occurrences are discarded
+
+origin_age:
+  min:                             # required. origin ~ Uniform(min, max)
+  max:                             # required
+  origin_lineage_must_be_sampled:  # required
+
+rate_priors:
+  speciation:
+    log_mean:                      # required. lognormal, on the log scale; one draw per interval
+    log_sd:                        # required
+  extinction:
+    log_mean:                      # required
+    log_sd:                        # required
+  turnover:
+    log_mean: 0                    # stationary prior only: extinction is speciation times turnover
+    log_sd: 0.3
+  fossil_sampling:
+    log_mean:                      # required
+    log_sd:                        # required
+  anagenetic_speciation:           # required. above 0, an anagenetic rate is drawn from the speciation prior; 0 is budding only
+
+rates_through_time:
+  random_walk:
+    step_sd: 0                     # sd of the step between adjacent intervals' log rates
+    step_sd_prior:
+      log_mean:                    # unset, the step sd is fixed at step_sd
+      log_sd: 0
+    fossil_sampling_step_sd_prior:
+      log_mean:                    # unset, fossil sampling shares the step sd
+      log_sd: 0
+  stationary:
+    mean_reversion:                # unset, the stationary prior is off unless correlation_prior is set
+    reference_lag: 1.5             # the lag the correlation is stated at
+    correlation_prior:
+      beta_a:                      # unset, the stationary prior is off unless mean_reversion is set
+      beta_b:
+    level_sd:
+      speciation: 0                # sd of each replicate's mean log rate about the prior mean; 0 fixes it there
+      turnover: 0
+      fossil_sampling: 0
+    spread_prior:
+      log_mean:                    # unset, the spread is fixed
+      log_sd: 0
+    fossil_sampling_spread_prior:
+      log_mean:                    # unset, fossil sampling shares the spread
+      log_sd: 0
+
+record:
+  extant_sampling_probability:     # unset, every lineage alive at the present is seen, and a run may fit any value
+  interior_reporting: 1            # below 1, interior occurrences are thinned at a rate drawn per replicate from Uniform(0, 1)
+  occurrence_bins:
+    width:                         # required. occurrence ages are reported to these bins
+    oldest_edge:                   # required
+
+accepted_replicates:
+  min_taxa: 1                      # a replicate outside these bounds is redrawn
+  max_taxa:                        # no ceiling
+  taxa_counted: fossil             # fossil: fossil-sampled taxa only; record: survivors seen at the present too
+  min_fossil_taxa: 0
+
+simulation_limits:
+  max_lineages:                    # no ceiling
+  max_waiting_time_draws:          # no ceiling

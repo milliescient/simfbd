@@ -8,7 +8,8 @@
       max: 21
 
 A name that is not a setting is refused, with the nearest one that is, so a typo cannot
-quietly leave a default in place. A batch does not say how many replicates it has: `simfbd
+quietly leave a default in place. The defaults are written down once, in defaults/batch.yml
+and defaults/run.yml beside this file, which list every setting there is. A batch does not say how many replicates it has: `simfbd
 extend` adds them and the manifest counts them.
 """
 import difflib
@@ -20,8 +21,19 @@ import yaml
 
 from . import settings as S
 
-KINDS = {"batch": (S.BATCH_SETTINGS, S.BATCH_REQUIRED, {}),
-         "run": (S.RUN_SETTINGS, S.RUN_REQUIRED, S.RUN_DEFAULTS)}
+HERE = os.path.dirname(os.path.abspath(__file__))
+KINDS = {"batch": (S.BATCH_SETTINGS, S.BATCH_REQUIRED), "run": (S.RUN_SETTINGS, S.RUN_REQUIRED)}
+
+
+def defaults_file(kind):
+    return os.path.join(HERE, "defaults", f"{kind}.yml")
+
+
+def defaults(kind):
+    """{internal name: value} for the settings that have one when a config leaves them out."""
+    by_name = {name: key for key, name, _ in KINDS[kind][0]}
+    doc = yaml.safe_load(open(defaults_file(kind))) or {}
+    return {by_name[name]: _word(v) for name, v in _flatten(doc) if v is not None}
 
 
 def file_hash(path):
@@ -46,9 +58,10 @@ def _word(v):
     return str(v)
 
 
-def load(path, kind):
-    """{internal name: value as the scripts take it}, validated."""
-    table, required, defaults = KINDS[kind]
+def load(path, kind, with_defaults=True):
+    """{internal name: value as the scripts take it}, validated. Without the defaults it is
+    only what the config itself says."""
+    table, required = KINDS[kind]
     try:
         doc = yaml.safe_load(open(path)) or {}
     except yaml.YAMLError as e:
@@ -56,7 +69,7 @@ def load(path, kind):
     if not isinstance(doc, dict):
         raise SystemExit(f"simfbd: {path} must be settings under their section names")
     by_name = {name: key for key, name, _ in table}
-    out = dict(defaults)
+    out = defaults(kind) if with_defaults else {}
     for name, v in _flatten(doc):
         if name not in by_name:
             other = {n: k for k, n, _ in KINDS["run" if kind == "batch" else "batch"][0]}
@@ -66,7 +79,7 @@ def load(path, kind):
             near = difflib.get_close_matches(name, by_name, n=1)
             raise SystemExit(f"simfbd: {path} sets {name}, which is not a setting"
                              + (f". Did you mean {near[0]}?" if near else "")
-                             + "\n  simfbd config names lists them")
+                             + f"\n  simfbd config default {kind} lists them")
         if v is None:
             continue
         key = by_name[name]
@@ -79,15 +92,6 @@ def load(path, kind):
     if missing:
         raise SystemExit(f"simfbd: {path} does not set {', '.join(missing)}")
     return out
-
-
-def names(kind):
-    table, required, defaults = KINDS[kind]
-    lines = []
-    for key, name, meaning in table:
-        mark = "required" if key in required else f"default {defaults[key]}" if key in defaults else ""
-        lines.append(f"{name:<68} {mark:<14} {meaning}".rstrip())
-    return lines
 
 
 def from_shell(path):

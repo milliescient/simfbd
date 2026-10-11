@@ -5,7 +5,7 @@
     simfbd status <batch or run> ...   does it still match its manifest
     simfbd summarize <run> ...         SBC ranks, coverage and diagnostics for a run
     simfbd ranks <run>                 mean rank per parameter
-    simfbd config names [batch|run]    every setting a config can hold, and what it means
+    simfbd config default [batch|run]  every setting a config can hold, with its default
     simfbd config convert <config.sh>  an old shell config, as the YAML that replaces it
     simfbd script <name> [args]        run one of the other scripts simfbd carries
     simfbd path <name>                 where one of those scripts is, for something that sources it
@@ -70,11 +70,9 @@ def run_script(name, args):
 
 
 def cmd_config(a):
-    if a.what == "names":
+    if a.what == "default":
         for kind in ([a.arg] if a.arg in ("batch", "run") else ["batch", "run"]):
-            print(f"# a {kind}'s config.yml")
-            print("\n".join(config.names(kind)))
-            print()
+            sys.stdout.write(open(config.defaults_file(kind)).read() + "\n")
         return
     if not a.arg:
         raise SystemExit("usage: simfbd config convert <config.sh>")
@@ -128,7 +126,7 @@ def main(argv=None):
     p = sub.add_parser("ranks", help="mean rank per parameter")
     p.add_argument("run")
     p = sub.add_parser("config", help="the settings a config can hold, or an old config converted")
-    p.add_argument("what", choices=["names", "convert"])
+    p.add_argument("what", choices=["default", "convert"])
     p.add_argument("arg", nargs="?")
     p = sub.add_parser("script", help="run one of the other scripts simfbd carries")
     p.add_argument("name")

@@ -29,7 +29,7 @@ the batch's hyperpriors and has no way to set them.
 ```
 a-batch/
   config.yml         the generating process and every hyperprior, written by you
-  manifest.yml       the same settings as simulated, and the record of that, written by simfbd
+  manifest.yml       the record of what was simulated from it, written by simfbd
   specimens_complete/  specimens_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
@@ -46,6 +46,7 @@ over as a directory, with simfbd at a stated commit to read it.
 src/simfbd/          the package
   cli.py             the simfbd command
   settings.py        every setting: the name it is written under and what it means
+  defaults/          batch.yml and run.yml: every setting, with the value it takes when left out
   config.py          reads and checks a config.yml
   batch.py  fit.py   simulate replicates, fit a run
   manifest.py        writes, reads and checks a manifest.yml
@@ -67,8 +68,12 @@ simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
 
 ## Config and manifest
 
-A config is what you ask for and a manifest is what was done. Both are YAML, in the same
-names, and a manifest is the config as it was used plus the record.
+A config is what you ask for and a manifest is what was done. You write the config and
+simfbd never edits it; simfbd writes the manifest and you never edit it. A setting is written
+once, in the config, and the manifest holds only the record: the hash of the config it was
+made from, how many replicates there are, which code ran, the hashes of what it read and
+wrote, and what the filter refused. So a change to `config.yml` is always a decision, and a
+change to `manifest.yml` is always an event.
 
 ```yaml
 # a batch's config.yml
@@ -104,9 +109,12 @@ mcmc:
   chains_at_once: 6
 ```
 
-`simfbd config names` lists every setting with what it means and which are required. A name
-that is not a setting is refused, with the nearest one that is, and so is a run setting in a
-batch's config or the other way round. Times are in whatever unit the rates are per.
+A config holds only what it needs to say. Every setting there is, with what it means and the
+value it takes when a config leaves it out, is in `defaults/batch.yml` and `defaults/run.yml`
+in the package, and `simfbd config default batch` prints one: copy it to start a config. Those
+files are where the defaults come from, not a description of them. A name that is not a
+setting is refused, with the nearest one that is, and so is a run setting in a batch's config
+or the other way round. Times are in whatever unit the rates are per.
 
 A batch's config does not say how many replicates it has: `simfbd extend` adds them and the
 manifest counts them. New replicates cannot be drawn under different settings, since they
@@ -146,8 +154,9 @@ from.
 
 ### Batches made before configs were YAML
 
-Such a batch holds a `config.sh` of short capitalised keys, and either a `manifest.tsv` or a
-`manifest.yml`. `simfbd fit`, `summarize`, `ranks` and `status` still work on it: the shell
+Such a batch holds a `config.sh` of short capitalised keys, and a `manifest.tsv` or a
+`manifest.yml` that carries its settings as well as its record, since they have nowhere
+readable to be but there. `simfbd fit`, `summarize`, `ranks` and `status` still work on it: the shell
 driver it was made with is carried in `scripts/` and is called for it and for nothing else.
 It cannot be regenerated, and one with a `manifest.tsv` cannot be extended. A new batch takes
 a `config.yml`, and `simfbd config convert old/config.sh` writes one from an old config,
@@ -175,12 +184,12 @@ simulator draws from while the fit keeps the untruncated one, and the SBC ranks 
 non-uniform by exactly that much. A floor and ceiling on the number of reported taxa,
 `accepted_replicates`, is a function of the record and is free, because conditioning on a
 function of the record leaves the posterior given that record alone. Every batch records
-`prior_screen`, the fraction of draws the ceiling refused, in its manifest.
+`prior_filter`, the fraction of draws the ceiling refused, in its manifest.
 
 How much it costs is a question of resolution: a truncation of fraction e shifts a mean rank
 by roughly e/2, against a standard error of 0.289/sqrt(n). At n = 10000 that is 0.0029, so e
 has to stay near or below 0.5% for the truncation to be invisible. Whether a given prior can
-meet that is a question for the study that chooses it; `prior_screen` is what lets it be
+meet that is a question for the study that chooses it; `prior_filter` is what lets it be
 measured rather than assumed.
 
 ## The two key axes
@@ -215,10 +224,9 @@ Neither script contains a prior of its own. Four rules keep it that way:
   after the fact stops the run instead of quietly mixing parameters across replicates.
   `simfbd fit --force` overrides for a run.
 
-`manifest.yml` is what makes an output self-describing: it names the batch, the record
-read, the resolved hyperpriors, the config hashes, the script hashes and the rb binary.
-`summarize.R` reads it rather than re-deriving anything from directory names, so a result
-cannot be scored against the wrong truth.
+A config and its manifest together make an output self-describing: the settings, the config
+hashes, the script hashes and the rb binary. `summarize.R` reads them rather than re-deriving
+anything from directory names, so a result cannot be scored against the wrong truth.
 
 The names are in `settings.py`, one line a setting: the name it is written under, what it
 means, and the name the simulator and the Rev templates know it by. That last is how a value

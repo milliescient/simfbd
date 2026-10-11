@@ -1,7 +1,6 @@
 """Every setting a batch or a run has: the name it is written under, and what it means.
 
-A config is what you ask for and a manifest is what was done, and both are YAML in these
-names. The first column is the name the simulator and the Rev templates know a setting by,
+A config is what you ask for, in these names, and a manifest is the record of what was done. The first column is the name the simulator and the Rev templates know a setting by,
 which is how it reaches them and nothing a person writes or reads.
 """
 
@@ -95,8 +94,8 @@ RUN_SETTINGS = [
 BATCH_RECORD = {
     "kind": "kind", "batch": "batch", "config_hash": "config_hash",
     "true_vals_order": "true_vals_order", "NREPS": "replicates",
-    "screened": "prior_screen.refused", "screened_of": "prior_screen.of",
-    "screened_frac": "prior_screen.fraction",
+    "screened": "prior_filter.refused", "screened_of": "prior_filter.of",
+    "screened_frac": "prior_filter.fraction",
 }
 RUN_RECORD = {
     "kind": "kind", "run": "run", "batch": "batch",
@@ -114,7 +113,8 @@ RUN_RECORD = {
 BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD",
                   "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "LAMBDA_A", "ORIGIN_SAMPLED"]
 RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN", "NCORES"]
-RUN_DEFAULTS = {"ORIGIN_PRIOR": "uniform", "SURVIVORS": "true", "DROP_PRESENT_ONLY": "false"}
+# The value a setting takes when a config leaves it out is in defaults/batch.yml and
+# defaults/run.yml, not here.
 
 # a setting that takes one of a few words
 CHOICES = {"MODEL": ("fbdr", "bds", "fbdsp"), "INFER": ("complete", "incomplete"),

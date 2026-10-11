@@ -172,7 +172,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
                              "replicates": n, "specimens": specimens,
                              "simfbd_commit": tools.version(),
                              "infer_script_hash": config.file_hash(template), "rb_path": rb_path,
-                             "rb_md5": rb_md5, "rb_commit": rb_describe}, value_of=r.get)
+                             "rb_md5": rb_md5, "rb_commit": rb_describe})
     done = sum(1 for f in os.listdir(out) if f.startswith("rep_") and f.endswith(".log"))
     print(f"logs: {done}/{n}, {lines_in(failures)} failed")
     print(f"manifest: {os.path.join(run, 'manifest.yml')}")

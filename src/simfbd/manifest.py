@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """Write, read and check a batch's or a run's manifest.yml.
 
-A config is what was asked for and a manifest is what was done: the same settings under the
-same names, then the record. How many replicates there are, which code ran as name@version
-under `uses`, and the hash of each path it read and wrote under `inputs` and `outputs`. Those
-are the words a notebook's lock uses, and the hash is digest() below, which is the one sloop
-computes, so a batch or a run can be checked with no notebook and a path hashes alike in both.
+A config is what was asked for and a manifest is what was done, and a setting is written
+once, in the config. The manifest is the record: the hash of the config it was made from, how
+many replicates there are, which code ran as name@version under `uses`, and the hash of each
+path it read and wrote under `inputs` and `outputs`. Those are the words a notebook's lock
+uses, and the hash is digest() below, which is the one sloop computes, so a batch or a run
+can be checked with no notebook and a path hashes alike in both.
 
-Scripts read a manifest through flat(), which answers by the name the simulator knows a
-setting by. A batch simulated before manifest.yml existed has a manifest.tsv of key<TAB>value
-lines instead, and flat() reads that too, so a script never has to know which kind it was
-handed.
+Scripts read both through flat(), which answers by the name the simulator knows a setting
+by: the settings from the config and the record from the manifest. A batch made before
+configs were YAML has its settings in its manifest, as a manifest.tsv of key<TAB>value lines
+or an earlier manifest.yml, and flat() reads those too, so a script never has to know which
+kind it was handed.
 
     python -m simfbd.manifest get  DIR KEY      # one value
     python -m simfbd.manifest flat DIR          # every value, as key<TAB>value lines
@@ -23,6 +25,7 @@ from pathlib import Path
 
 import yaml
 
+from . import config
 from .settings import BATCH_RECORD, BATCH_SETTINGS, RUN_RECORD, RUN_SETTINGS
 
 NUMBER = re.compile(r"-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?")
@@ -154,6 +157,16 @@ def flat(d):
         tc = doc.get("toolchain") or {}
         out["simfbd_commit"] = shown(used(doc.get("uses"), "simfbd") or tc.get("simfbd_commit"))
         out["rb_commit"] = shown(tc.get("rb_describe") or tc.get("rb_commit"))
+    batch_dir = out["batch_dir"] if run else d
+    if os.path.exists(os.path.join(batch_dir, "config.yml")):
+        # the settings are in the configs. A batch's are given as it set them, and a run's
+        # with the defaults filled in, which is what a manifest used to hold of each.
+        asked = config.load(os.path.join(batch_dir, "config.yml"), "batch", with_defaults=False)
+        for key, _, _ in BATCH_SETTINGS:
+            out[key] = asked.get(key, "none")       # readers test for this word
+        if run:
+            out.update(config.load(os.path.join(d, "config.yml"), "run"))
+        return out
     for key, where, _ in BATCH_SETTINGS:
         v = dig(doc, ("simulation." if run else "") + where)
         # a manifest.tsv wrote every key, and readers test for this word
@@ -182,7 +195,7 @@ def save(d, lines):
     os.replace(tmp, os.path.join(d, "manifest.yml"))
 
 
-def write_batch(d, f, value_of=os.environ.get):
+def write_batch(d, f, value_of=None):
     _, old = find(d)
     first, last = int(f["first"]), int(f["last"])
     simulated = list((old or {}).get("simulated") or [])
@@ -195,7 +208,7 @@ def write_batch(d, f, value_of=os.environ.get):
                       "uses": [f"simfbd@{f['simfbd_commit']}"],
                       "outputs": {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}})
     lines = [
-        "# Written by simfbd: the batch's settings as it was simulated, and the record of that.",
+        "# Written by simfbd: the record of what was simulated from config.yml. Do not edit it.",
         "kind: batch",
         f"batch: {text(os.path.basename(os.path.normpath(d)))}",
         f"config_hash: {text(f['config_hash'])}",
@@ -220,22 +233,25 @@ def write_batch(d, f, value_of=os.environ.get):
         with open(screen) as fh:
             s = dict(l.rstrip("\n").split("\t", 1) for l in fh if "\t" in l)
         lines += ["# draws refused before simulating by simulation_limits.max_lineages, measured",
-                  "prior_screen:",
+                  "prior_filter:",
                   f"  refused: {s['screened']}",
                   f"  of: {s['screened_of']}",
                   f"  fraction: {s['screened_frac']}"]
-    lines += ["", "# ---- the generating process, from the batch's config ----"]
-    lines += settings_lines(BATCH_SETTINGS, value_of)
+    if value_of is not None:
+        # only for a batch whose config is a config.sh: its settings have nowhere readable
+        # to be but here
+        lines += ["", "# ---- the generating process, from config.sh ----"]
+        lines += settings_lines(BATCH_SETTINGS, value_of)
     save(d, lines)
 
 
-def write_run(d, f, value_of=os.environ.get):
+def write_run(d, f, value_of=None):
     batch_path, batch = find(f["batch_dir"])
     if batch is None:
         raise SystemExit(f"manifest.py: {f['batch_dir']} has no manifest.yml")
     sim = flat(f["batch_dir"])
     lines = [
-        "# Written by simfbd: the run's settings as it was fitted, and the record of that.",
+        "# Written by simfbd: the record of what was fitted from config.yml. Do not edit it.",
         "kind: run",
         f"run: {text(os.path.basename(os.path.normpath(d)))}",
         f"batch: {text(batch['batch'])}",
@@ -260,13 +276,14 @@ def write_run(d, f, value_of=os.environ.get):
         f"  rb_md5: {text(f['rb_md5'])}",
         f"  rb_describe: {text(f['rb_commit'])}",
     ]
-    lines += ["", "# ---- the fit, from this run's config ----"]
-    lines += settings_lines(RUN_SETTINGS, value_of)
-    lines += ["", f"# ---- the generating process, copied from {batch_path} ----",
-              "simulation:"]
-    lines += settings_lines(BATCH_SETTINGS,
-                            lambda k: None if sim.get(k) == "none" else sim.get(k),
-                            indent="  ")
+    if value_of is not None:
+        lines += ["", "# ---- the fit, from this run's config.sh ----"]
+        lines += settings_lines(RUN_SETTINGS, value_of)
+        lines += ["", f"# ---- the generating process, copied from {batch_path} ----",
+                  "simulation:"]
+        lines += settings_lines(BATCH_SETTINGS,
+                                lambda k: None if sim.get(k) == "none" else sim.get(k),
+                                indent="  ")
     save(d, lines)
 
 
@@ -350,9 +367,9 @@ def main(argv):
         raise SystemExit(__doc__)
     cmd, d, rest = argv[0], argv[1].rstrip("/"), argv[2:]
     if cmd == "write-batch":
-        write_batch(d, fields(rest))
+        write_batch(d, fields(rest), value_of=os.environ.get)
     elif cmd == "write-run":
-        write_run(d, fields(rest))
+        write_run(d, fields(rest), value_of=os.environ.get)
     elif cmd == "get":
         v = flat(d).get(rest[0])
         if v is not None:

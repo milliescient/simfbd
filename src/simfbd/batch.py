@@ -67,8 +67,7 @@ def extend(d, n, allow_sim_change=False):
     if subprocess.run([tools.rscript(), str(sim)], env=env).returncode != 0:
         die("simulation failed")
     manifest.write_batch(d, {"first": have + 1, "last": last, "config_hash": cfg_hash,
-                             "sim_script_hash": sim_hash, "simfbd_commit": tools.version()},
-                         value_of=settings.get)
+                             "sim_script_hash": sim_hash, "simfbd_commit": tools.version()})
     # the simulator reports what it actually drew with; disagreement means a setting did not reach it
     used = os.path.join(d, "sim_params.tsv")
     if os.path.exists(used):
