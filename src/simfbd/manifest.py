@@ -137,6 +137,9 @@ def flat(d):
                 if "\t" in line:
                     k, v = line.rstrip("\n").split("\t", 1)
                     out[k] = v              # a run repeats RHO; the later line is the fitted one
+        # a manifest.tsv says screened where everything since says filtered
+        for k in [k for k in out if k.startswith("screened")]:
+            out.setdefault(k.replace("screened", "filtered"), out[k])
         if out.get("kind") == "run":
             out["batch_dir"] = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
         return out
@@ -144,6 +147,8 @@ def flat(d):
     run = doc.get("kind") == "run"
     for name, where in (RUN_RECORD if run else BATCH_RECORD).items():
         v = dig(doc, where)
+        if v is None and where.startswith("prior_filter."):
+            v = dig(doc, where.replace("prior_filter.", "prior_screen."))
         if v is not None:
             out[name] = shown(v)
     if not run and doc.get("simulated"):
@@ -228,15 +233,17 @@ def write_batch(d, f, value_of=None):
         if s.get("outputs"):
             lines.append("    outputs:")
             lines += [f"      {n}: {text(h)}" for n, h in s["outputs"].items()]
-    screen = os.path.join(d, "screened.tsv")
-    if os.path.exists(screen):
-        with open(screen) as fh:
-            s = dict(l.rstrip("\n").split("\t", 1) for l in fh if "\t" in l)
+    counts = next((os.path.join(d, n) for n in ("filtered.tsv", "screened.tsv")
+                   if os.path.exists(os.path.join(d, n))), None)
+    if counts:
+        with open(counts) as fh:
+            s = {k.replace("screened", "filtered"): v
+                 for k, v in (l.rstrip("\n").split("\t", 1) for l in fh if "\t" in l)}
         lines += ["# draws refused before simulating by simulation_limits.max_lineages, measured",
                   "prior_filter:",
-                  f"  refused: {s['screened']}",
-                  f"  of: {s['screened_of']}",
-                  f"  fraction: {s['screened_frac']}"]
+                  f"  refused: {s['filtered']}",
+                  f"  of: {s['filtered_of']}",
+                  f"  fraction: {s['filtered_frac']}"]
     if value_of is not None:
         # only for a batch whose config is a config.sh: its settings have nowhere readable
         # to be but here

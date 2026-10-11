@@ -171,7 +171,7 @@ GMRF_SD <- cfg_opt("GMRF_SD", 0)
 # estimates it. Setting GMRF_SD_MEAN switches this on, and GMRF_SD is then ignored.
 #
 # The hyperprior is lognormal on purpose. A heavy-tailed one puts real mass on walks steep
-# enough to trip the MAX_LINEAGES screen, and that screen is a function of theta alone, so it
+# enough to trip the MAX_LINEAGES filter, and that filter is a function of theta alone, so it
 # truncates the prior the simulator draws from while the analysis keeps the untruncated one.
 # The ranks would be non-uniform for that reason alone.
 #
@@ -186,8 +186,8 @@ GMRF_SD <- cfg_opt("GMRF_SD", 0)
 # anchor, so the oldest interval gets a far vaguer prior than the youngest; an AR(1) is
 # stationary, so every interval gets the same one. And parameterising on turnover rather
 # than mu keeps net diversification tied to lambda, which is what stops a drifting
-# lambda - mu compounding into clades that trip the MAX_LINEAGES screen. Measured, that
-# screen fires on 18% of random-walk draws and effectively none of these.
+# lambda - mu compounding into clades that trip the MAX_LINEAGES filter. Measured, that
+# filter fires on 18% of random-walk draws and effectively none of these.
 #
 # The correlation is set per unit time, not per interval, so the prior is a property of the
 # timeline and not of the grid. It is parameterised by the correlation at a fixed reference
@@ -346,7 +346,7 @@ draw_theta <- function(lambda_a) {
 }
 
 # Expected lineages ever born, 1 + integral of lambda(t)E[N(t)]: E[N] grows as exp(lambda-mu)
-# within an interval, so both integrals are closed form. Screening on this before bd.sim is
+# within an interval, so both integrals are closed form. Filtering on this before bd.sim is
 # what keeps a runaway draw from hanging, and it is a function of theta alone, so a redraw
 # leaves the accepted set a truncation of the prior rather than a conditioning on the data.
 expected_lineages <- function(lambda, mu, age, shifts) {
@@ -363,7 +363,7 @@ expected_lineages <- function(lambda, mu, age, shifts) {
   total
 }
 
-# Expected size screens out the astronomical draws, but with rate shifts paleobuddy takes
+# Expected size filters out the astronomical draws, but with rate shifts paleobuddy takes
 # its general path, whose cost is not a function of tree size alone, so a rare draw still
 # runs for minutes. Its cost is the waiting times it draws, over every tree bd.sim tries
 # before one meets nFinal, so those are what is counted. NULL means the call went over
@@ -381,10 +381,10 @@ if (is.finite(SIM_MAX_DRAWS)) {
                            if (sim_draws_left < 0) stop(over_budget)
                          })))
 }
-# draws refused by the expected-clade screen. This one is a function of theta alone, so it
+# draws refused by the expected-clade filter. This one is a function of theta alone, so it
 # truncates the prior and the ranks are non-uniform by exactly that much: the number belongs
 # in the record of every batch, not just in a pilot.
-sim_screened <- 0
+sim_filtered <- 0
 sim_drawn <- 0
 bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
   call_it <- function() bd.sim(n0, lambda, mu, tMax, lShifts = lShifts,
@@ -556,7 +556,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     # a draw whose expected tree exceeds the ceiling is refused before it is simulated
     if (sbc && is.finite(MAX_LINEAGES)) {
       while (expected_lineages(lambda, mu, tMax, lShifts) > MAX_LINEAGES) {
-        sim_screened <<- sim_screened + 1
+        sim_filtered <<- sim_filtered + 1
         redraw()
       }
     }
@@ -1013,18 +1013,20 @@ if (!exists("sim_functions_only")) {
   }
   if (is.finite(MAX_LINEAGES)) {
     tot <- sim_drawn + reps - first + 1
-    cat(sprintf("draws refused by the expected-clade screen: %d of %d (%.2f%%)\n",
-                sim_screened, tot, 100 * sim_screened / max(tot, 1)))
+    cat(sprintf("draws refused by the expected-clade filter: %d of %d (%.2f%%)\n",
+                sim_filtered, tot, 100 * sim_filtered / max(tot, 1)))
     # the batch's count is over every replicate it holds, not only the ones just added
-    screen_file <- paste0(reps_dir, "screened.tsv")
-    if (first > 1 && file.exists(screen_file)) {
-      was <- read.table(screen_file, sep = "\t", col.names = c("k", "v"))
-      sim_screened <- sim_screened + was$v[was$k == "screened"]
-      tot <- tot + was$v[was$k == "screened_of"]
+    filter_file <- paste0(reps_dir, "filtered.tsv")
+    # a batch begun before this file was called that has its earlier counts under the old name
+    was_file <- if (file.exists(filter_file)) filter_file else paste0(reps_dir, "screened.tsv")
+    if (first > 1 && file.exists(was_file)) {
+      was <- read.table(was_file, sep = "\t", col.names = c("k", "v"))
+      sim_filtered <- sim_filtered + was$v[was$k %in% c("filtered", "screened")]
+      tot <- tot + was$v[was$k %in% c("filtered_of", "screened_of")]
     }
-    writeLines(sprintf("screened\t%d\nscreened_of\t%d\nscreened_frac\t%s",
-                       sim_screened, tot, signif(sim_screened / max(tot, 1), 4)),
-               paste0(reps_dir, "screened.tsv"))
+    writeLines(sprintf("filtered\t%d\nfiltered_of\t%d\nfiltered_frac\t%s",
+                       sim_filtered, tot, signif(sim_filtered / max(tot, 1), 4)),
+               filter_file)
   }
   if (OU) {
     keys <- c(keys, "OU_DREF", "OU_PHI_A", "OU_PHI_B", "OU_THETA",

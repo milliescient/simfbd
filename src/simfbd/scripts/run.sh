@@ -150,8 +150,8 @@ if [ "$simulate" = true ]; then
     printf 'true_vals_order\tyoungest_first\n'
     for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
     for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
-    # what the theta screen actually refused, measured rather than configured
-    [ -f "$BATCHDIR/screened.tsv" ] && cat "$BATCHDIR/screened.tsv"
+    # what the theta filter actually refused, measured rather than configured
+    [ -f "$BATCHDIR/filtered.tsv" ] && cat "$BATCHDIR/filtered.tsv"
   } > "$BATCH_MANIFEST"
   fi
 

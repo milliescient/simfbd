@@ -94,8 +94,8 @@ RUN_SETTINGS = [
 BATCH_RECORD = {
     "kind": "kind", "batch": "batch", "config_hash": "config_hash",
     "true_vals_order": "true_vals_order", "NREPS": "replicates",
-    "screened": "prior_filter.refused", "screened_of": "prior_filter.of",
-    "screened_frac": "prior_filter.fraction",
+    "filtered": "prior_filter.refused", "filtered_of": "prior_filter.of",
+    "filtered_frac": "prior_filter.fraction",
 }
 RUN_RECORD = {
     "kind": "kind", "run": "run", "batch": "batch",
