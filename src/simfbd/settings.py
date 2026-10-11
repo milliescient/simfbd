@@ -87,6 +87,7 @@ RUN_SETTINGS = [
     ("DROP_PRESENT_ONLY", "inference.drop_present_only_taxa", ""),
     ("GENS", "mcmc.generations", ""),
     ("PRINTGEN", "mcmc.sample_every", ""),
+    ("SEED", "mcmc.seed", "each replicate's chain is seeded with this plus its number"),
     ("NCORES", "mcmc.chains_at_once", "replicates fitted in parallel"),
 ]
 

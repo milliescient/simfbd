@@ -18,8 +18,11 @@ rscript: /opt/R/bin/Rscript
 `simfbd doctor` says which this machine would use, which rule supplied each, and whether the R
 packages are there. Every `extend` and `fit` prints the same two lines before it starts, since
 a machine with no tools file quietly falls back to whatever is on `PATH`. `simfbd uses` prints
-what would run as `name@version`, and `simfbd uses rb` one version, which is what a notebook
-asks so that it checks the binary simfbd actually runs.
+what would run as `name@version`, and `simfbd uses rb` one version.
+
+Which rb fits a run is simfbd's to check, not a notebook's. A notebook's own check of rb sees
+the one its scripts get by calling `rb`, which need not be the one simfbd finds, so a run that
+must be fitted by a particular build says so in its own config, below.
 
 A config can say which versions it is to be run with, and is then refused where they are not
 those, however the tools were found:
@@ -248,9 +251,13 @@ reaches them and nothing a person writes or reads. A new setting gets a line the
 
 ## What is not reproducible
 
-A simulation is: the same seeds give the same batch, byte for byte. A fit is not. The Rev
-templates set no seed, so two fits of one replicate give different chains, on one machine
-with one binary. Their summaries agree to within Monte Carlo error.
+A simulation reproduces: the same seeds give the same batch, byte for byte. A fit does too,
+on one machine with one binary: each replicate's chain is seeded with `mcmc.seed` plus the
+replicate's number, so fitting it again gives the same log. Across machines or builds of rb a
+chain may differ, and its summaries agree to within Monte Carlo error.
+
+A run under a batch made before configs were YAML is fitted by the shell driver, which sets no
+seed, so those fits differ from one time to the next.
 
 ## Scope
 

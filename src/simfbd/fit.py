@@ -122,7 +122,10 @@ def fit(run, force=False, slots=None, slot_dir=None):
             return
         # one self-contained file per replicate: the settings as Rev variables, then the template
         v = {**UNSET, **b, **r}
-        head = [f'rep <- "{rep}"', f'ORIGIN_PRIOR <- "{r["ORIGIN_PRIOR"]}"',
+        # seeded, so the same replicate fitted twice gives the same chain. Each replicate has
+        # its own seed, or their Monte Carlo errors would move together.
+        head = [f"seed({int(r['SEED']) + rep})",
+                f'rep <- "{rep}"', f'ORIGIN_PRIOR <- "{r["ORIGIN_PRIOR"]}"',
                 f"MAXFA <- {max_first_appearance(os.path.join(batch, specimens, f'taxa_{rep}.tsv'))}",
                 f"SKYLINE <- {sky}", f"COMPLETE <- {complete}", f'COND <- "{r["COND"]}"',
                 f"RHO <- {r['RHO']}", f"GENS <- {r['GENS']}", f"PRINTGEN <- {r['PRINTGEN']}",

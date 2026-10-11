@@ -18,4 +18,5 @@ inference:
 mcmc:
   generations:                  # required
   sample_every:                 # required
+  seed: 1                       # each replicate's chain is seeded with this plus its number
   chains_at_once:               # required. replicates fitted in parallel
