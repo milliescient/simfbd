@@ -43,10 +43,9 @@ Rscript bin/summarize.R sims/batch1/runs/fbdrp_firstlast
 `sims/smoke/` is the same thing at 6 replicates and short chains, for checking the
 pipeline end to end in about a minute.
 
-`sims/age20`, `sims/age26` and `sims/age32` are `sims/pilot` with the origin prior moved
-deeper and nothing else changed, so pooling all four gives a range of tree sizes. They
-also set `MAX_LINEAGES`, a ceiling on lineages ever born: a deep origin leaves the oldest
-interval unbounded, so a draw in the upper tail of lambda never finishes simulating.
+Batches that differ only in the origin prior pool into a range of tree sizes. A deep
+origin wants `MAX_LINEAGES`, a ceiling on lineages ever born, because it leaves the oldest
+interval unbounded and a draw in the upper tail of lambda then never finishes simulating.
 
 That ceiling is the one filter that costs something. It is applied by refusing the draw
 before it is simulated, so it is a function of theta alone: it truncates the prior the
@@ -58,9 +57,9 @@ of draws the ceiling refused, in its manifest.
 
 How much it costs is a question of resolution: a truncation of fraction e shifts a mean rank
 by roughly e/2, against a standard error of 0.289/sqrt(n). At n = 10000 that is 0.0029, so e
-has to stay near or below 0.5% for the truncation to be invisible. A random-walk prior cannot
-meet that at any workable ceiling, which is why the final design uses a stationary field.
-See `docs/SBC-DESIGN.md`.
+has to stay near or below 0.5% for the truncation to be invisible. Whether a given prior can
+meet that is a question for the study that chooses it; `screened_frac` is what lets it be
+measured rather than assumed.
 
 ## The two key axes
 
@@ -112,6 +111,6 @@ pipeline is in git history at 8563117.
 
 ## Toolchain (this machine)
 
-- `rb`: pinned build at `/research/phyloworks/rb-sim/projects/cmake/build/rb`,
-  overridable with `RBIN=...`; the manifest records which one ran.
+- `rb`: pinned build, set in `bin/env.sh` and overridable with `RBIN=...`; the manifest
+  records the path, the md5 and the binary's own git describe, so it names what actually ran.
 - R + paleobuddy: micromamba env `/research/phyloworks/mm/root/envs/fsim`

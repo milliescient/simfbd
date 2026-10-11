@@ -3,9 +3,10 @@
 #
 # Paired on the replicate: each arm fits the same record, so the difference between them is
 # the point mass and nothing else.
+#   survivor_progress.R sims/<batch>
 suppressMessages(library(posterior))
-setwd("/research/phyloworks/simfbd")
-BATCH <- "sims/survivors"
+BATCH <- commandArgs(TRUE)[1]
+if (is.na(BATCH)) stop("usage: survivor_progress.R sims/<batch>", call. = FALSE)
 ESS_MIN <- 100
 load(file.path(BATCH, "sim_list.RData"))
 

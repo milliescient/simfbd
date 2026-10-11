@@ -4,7 +4,7 @@
 # fraction is the misspecification under measurement. Batches differ only in the origin
 # prior, which is the lever on tree size and hence on how many lineages go unsampled.
 #
-#   Rscript bin/bias.R sims/pilot sims/age20 sims/age26 sims/age32
+#   Rscript bin/bias.R sims/<batch> [sims/<batch> ...]
 
 suppressMessages(library(posterior))
 
