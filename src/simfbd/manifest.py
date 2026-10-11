@@ -171,6 +171,7 @@ def flat(d):
             out[key] = asked.get(key, "none")       # readers test for this word
         if run:
             out.update(config.load(os.path.join(d, "config.yml"), "run"))
+            out.pop("_uses", None)
         return out
     for key, where, _ in BATCH_SETTINGS:
         v = dig(doc, ("simulation." if run else "") + where)
@@ -210,7 +211,7 @@ def write_batch(d, f, value_of=None):
                          f"so the next cannot start at {first}")
     simulated.append({"replicates": f"{first}-{last}",
                       "sim_script_hash": f["sim_script_hash"],
-                      "uses": [f"simfbd@{f['simfbd_commit']}"],
+                      "uses": list(f.get("uses") or [f"simfbd@{f['simfbd_commit']}"]),
                       "outputs": {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}})
     lines = [
         "# Written by simfbd: the record of what was simulated from config.yml. Do not edit it.",

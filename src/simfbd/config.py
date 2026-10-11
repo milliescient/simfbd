@@ -8,7 +8,11 @@
       max: 21
 
 A name that is not a setting is refused, with the nearest one that is, so a typo cannot
-quietly leave a default in place. The defaults are written down once, in defaults/batch.yml
+quietly leave a default in place. A config may also say which versions it is to be run with,
+
+    uses: [rb@28e5b2, paleobuddy@1.1.0]
+
+and then it is refused where they are not those. The defaults are written down once, in defaults/batch.yml
 and defaults/run.yml beside this file, which list every setting there is. A batch does not say how many replicates it has: `simfbd
 extend` adds them and the manifest counts them.
 """
@@ -70,6 +74,8 @@ def load(path, kind, with_defaults=True):
         raise SystemExit(f"simfbd: {path} must be settings under their section names")
     by_name = {name: key for key, name, _ in table}
     out = defaults(kind) if with_defaults else {}
+    stated = doc.pop("uses", None) or []
+    out["_uses"] = [stated] if isinstance(stated, str) else [str(u) for u in stated]
     for name, v in _flatten(doc):
         if name not in by_name:
             other = {n: k for k, n, _ in KINDS["run" if kind == "batch" else "batch"][0]}
@@ -88,6 +94,8 @@ def load(path, kind, with_defaults=True):
             raise SystemExit(f"simfbd: {path}: {name} is {out[key]}; it is one of "
                              f"{', '.join(S.CHOICES[key])}")
     name_of = {key: name for key, name, _ in table}
+    if with_defaults is False:
+        out.pop("_uses")
     missing = [name_of[k] for k in required if k not in out]
     if missing:
         raise SystemExit(f"simfbd: {path} does not set {', '.join(missing)}")

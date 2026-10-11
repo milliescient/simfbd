@@ -39,6 +39,8 @@ def extend(d, n, allow_sim_change=False):
     if n < 1:
         die("how many must be a positive whole number")
     settings = config.load(cfg, "batch")
+    stated = settings.pop("_uses")
+    tools.require(stated, cfg)
     cfg_hash = config.file_hash(cfg)
     sim = tools.script("sim.R")
     sim_hash = config.file_hash(sim)
@@ -61,13 +63,15 @@ def extend(d, n, allow_sim_change=False):
     print(f"simulating {d}: reps {have + 1} to {last}, {settings['NINTERVALS']} intervals "
           f"of width {settings['INTERVAL_WIDTH']}", flush=True)
     warn_if_dirty()
+    tools.announce()
     env = dict(tools.environment(), **settings, BATCHDIR=d, NREPS=str(last), REPS_HAVE=str(have))
     for stale in ("SIM_TIMEOUT",):
         env.pop(stale, None)
     if subprocess.run([tools.rscript(), str(sim)], env=env).returncode != 0:
         die("simulation failed")
     manifest.write_batch(d, {"first": have + 1, "last": last, "config_hash": cfg_hash,
-                             "sim_script_hash": sim_hash, "simfbd_commit": tools.version()})
+                             "sim_script_hash": sim_hash, "simfbd_commit": tools.version(),
+                             "uses": tools.uses(tools.SIMULATES)})
     # the simulator reports what it actually drew with; disagreement means a setting did not reach it
     used = os.path.join(d, "sim_params.tsv")
     if os.path.exists(used):

@@ -3,6 +3,9 @@
 # reads it, so what it says is what happens. `simfbd config default batch` prints it.
 # Times are in whatever unit the rates are per.
 
+# uses: [paleobuddy@1.1.0]        # optional. Refused unless what simfbd runs is at these versions:
+#                                 # any of simfbd, R, paleobuddy, as `simfbd uses` prints them.
+
 timeline:
   rate_intervals:                  # required. piecewise-constant rate intervals
   interval_width:                  # required. width of each interval; the oldest runs on to the origin

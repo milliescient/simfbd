@@ -7,14 +7,26 @@ Simulation-based calibration and misspecification analyses for the RevBayes
 
     pip install -e /path/to/simfbd        # or: uv tool install /path/to/simfbd
 
-That puts `simfbd` on the path. It runs R and RevBayes, which are not Python's to install:
-`simfbd doctor` says which `rb` and `Rscript` this machine would use and whether the R packages
-are there. They are found from `$RBIN` and `$RSCRIPT`, else `~/.config/simfbd/tools.yml`, else
-`PATH`:
+That puts `simfbd` on the path. It runs R and RevBayes, which are not Python's to install.
+Each is found from `$RBIN` or `$RSCRIPT`, else `~/.config/simfbd/tools.yml`, else `PATH`:
 
 ```yaml
 rb: /opt/revbayes/build/rb
 rscript: /opt/R/bin/Rscript
+```
+
+`simfbd doctor` says which this machine would use, which rule supplied each, and whether the R
+packages are there. Every `extend` and `fit` prints the same two lines before it starts, since
+a machine with no tools file quietly falls back to whatever is on `PATH`. `simfbd uses` prints
+what would run as `name@version`, and `simfbd uses rb` one version, which is what a notebook
+asks so that it checks the binary simfbd actually runs.
+
+A config can say which versions it is to be run with, and is then refused where they are not
+those, however the tools were found:
+
+```yaml
+uses: [rb@28e5b2]                 # in a run's config: any of simfbd, rb
+uses: [paleobuddy@1.1.0, R@4.5.3] # in a batch's: any of simfbd, R, paleobuddy
 ```
 
 ## Layout
@@ -53,8 +65,10 @@ src/simfbd/          the package
   ranks.py           mean rank per parameter
   scripts/           what simfbd runs or carries: the simulator sim.R, the Rev templates,
                      summarize.R, and the shell driver for batches made before configs were YAML
-scripts/             exploratory sweeps, run by hand
 ```
+
+What it carries is only what it runs. Analyses of particular batches are in the notebook's
+`scripts/`, and the classical-estimator coverage sweeps are with the Warnock probe.
 
 ## Running
 
@@ -130,7 +144,7 @@ A manifest records what a notebook's lock records, in the same words. `uses` nam
 that ran as `name@version`, and `inputs` and `outputs` give each path with its hash:
 
 ```yaml
-uses: ["simfbd@f0c6fe5", "rb@28e5b2"]
+uses: ["simfbd@f0c6fe5", "rb@28e5b2"]    # a batch's names R and paleobuddy too
 inputs:
   specimens_complete: a108a52a6513    # read from the batch
 outputs:
@@ -241,6 +255,6 @@ with one binary. Their summaries agree to within Monte Carlo error.
 ## Scope
 
 `inference.model: fbdr`, `bds` and `fbdsp` are wired. PyRate is not: its scripts are in
-`scripts/pyrate/` and `sampling/`, and `scripts/pyrate.sh` reads the same
+`src/simfbd/scripts/pyrate/`, and `pyrate.sh` beside them reads the same
 `taxon/min_age/max_age/status` specimen format the simulator already writes, so reconnecting
 it needs no separate simulator. The previous TreeSim pipeline is in git history at 8563117.

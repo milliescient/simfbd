@@ -64,6 +64,8 @@ def fit(run, force=False, slots=None, slot_dir=None):
             die(f"no {f}")
     b = config.load(bcfg, "batch")
     r = config.load(rcfg, "run")
+    b.pop("_uses")
+    tools.require(r.pop("_uses"), rcfg)
     bhash, rhash = config.file_hash(bcfg), config.file_hash(rcfg)
     _, bdoc = manifest.find(batch)
     if bdoc is None or not replicates(batch):
@@ -101,6 +103,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
     print(f"{os.path.basename(run)}: batch={os.path.basename(batch)} reads={r['REPORTING']} "
           f"treated as {r['INFER']} conditioned on {r['COND']} rho={r['RHO']} reps={n}", flush=True)
     warn_if_dirty()
+    tools.announce()
 
     # a finished replicate's log has this many lines; a rerun fills gaps rather than redo work
     full = int(r["GENS"]) // int(r["PRINTGEN"]) + 2

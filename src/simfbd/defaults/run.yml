@@ -2,6 +2,9 @@
 # it out. One marked required has none. This file is where those values come from: simfbd
 # reads it, so what it says is what happens. `simfbd config default run` prints it.
 
+# uses: [rb@28e5b2]               # optional. Refused unless what simfbd runs is at these versions:
+#                                 # any of simfbd, rb, as `simfbd uses` prints them.
+
 inference:
   model:                        # required. fbdr: dnFBDRP; bds: dnBDS; fbdsp: dnFBDSP
   record_read:                  # required. the batch's specimens_<this> directory

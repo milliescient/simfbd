@@ -10,6 +10,8 @@
     simfbd script <name> [args]        run one of the other scripts simfbd carries
     simfbd path <name>                 where one of those scripts is, for something that sources it
     simfbd doctor                      the tools this machine would run, and whether they are there
+    simfbd uses [name]                 what it would run, as name@version, or one version
+    simfbd manifest flat|get <dir>     a batch's or a run's settings and record, for a script
     simfbd --version                   the commit of this code, -dirty if it has uncommitted changes
 
 A batch is a directory holding a config.yml, anywhere on disk, and a run is a directory
@@ -87,10 +89,9 @@ def cmd_doctor(a):
     import shutil
     print(f"simfbd     {tools.version()}   {tools.home()}")
     ok = True
-    for label, prog in (("rb", tools.rb()), ("Rscript", tools.rscript())):
-        at = shutil.which(prog)
-        ok = ok and bool(at)
-        print(f"{label:<10} {at or 'NOT FOUND: ' + prog}")
+    for label, at, rule in tools.found():
+        ok = ok and not at.startswith("NOT FOUND")
+        print(f"{label:<10} {at}  ({rule})")
     _, _, describe = tools.rb_identity()
     print(f"           rb was built from {describe}")
     r = subprocess.run([tools.rscript(), "-e",
@@ -134,6 +135,10 @@ def main(argv=None):
     p = sub.add_parser("path", help="where one of those scripts is")
     p.add_argument("name")
     sub.add_parser("doctor", help="the tools this machine would run")
+    p = sub.add_parser("uses", help="what simfbd would run, as name@version")
+    p.add_argument("name", nargs="?")
+    p = sub.add_parser("manifest", help="a batch's or a run's settings and record, for a script")
+    p.add_argument("rest", nargs=argparse.REMAINDER)
 
     a = ap.parse_args(argv)
     if a.version:
@@ -159,5 +164,11 @@ def main(argv=None):
         print(tools.script(a.name))
     elif a.cmd == "doctor":
         cmd_doctor(a)
+    elif a.cmd == "uses":
+        print(tools.version_of(a.name) if a.name else "\n".join(tools.uses(tools.KNOWN)))
+    elif a.cmd == "manifest":
+        if len(a.rest) < 2 or a.rest[0] not in ("flat", "get"):
+            raise SystemExit("usage: simfbd manifest flat <dir> | simfbd manifest get <dir> <name>")
+        manifest.main(a.rest)
     else:
         ap.print_help()
