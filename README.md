@@ -149,18 +149,27 @@ that ran as `name@version`, and `inputs` and `outputs` give each path with its h
 ```yaml
 uses: ["simfbd@f0c6fe5", "rb@28e5b2"]    # a batch's names R and paleobuddy too
 inputs:
-  specimens_complete: a108a52a6513    # read from the batch
+  config.yml: d26610a2e386               # this run's config
+  batch:
+    config.yml: 60319e066c3d             # the batch's
+    specimens_complete: 5d415912e147
+  simfbd:
+    infer-fbdrp.Rev: 12eb464f40e7        # the template simfbd carried
 outputs:
-  output: caf92bd48090                # written by this run
+  output: 0b1b35e37934                   # written by this run
 ```
+
+Everything a batch or a run read is under `inputs`, and everything is hashed one way. The hash
+is `digest()` in `manifest.py`: SHA-1 over one line per file, its relative name and the SHA-1
+of its bytes, files in sorted order, first 12 hex digits. It is the hash sloop computes, so a
+page that pins one of these paths, a config included, records the same value.
 
 `simfbd status` recomputes the hashes and reports each path as `current`, `changed` or
 `missing`. For a run it also checks the edge: what the run read must be what the batch says
 it wrote, and a run fitted before its batch was extended is reported `stale`. It exits
-non-zero if anything is changed, missing or stale. The hash is `digest()` in `manifest.py`:
-SHA-1 over one line per file, its relative name and the SHA-1 of its bytes, files in sorted
-order, first 12 hex digits. It is the hash sloop computes, so a page that pins one of these
-paths records the same value.
+non-zero if anything is changed, missing or stale. A script of simfbd's own that has changed
+since is reported as `differs` and not counted, since the commit under `uses` already names
+what ran.
 
 A batch's manifest keeps the output hashes of every extension, and only the last can still
 be checked, since an extension changes the files.

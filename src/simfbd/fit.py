@@ -66,12 +66,13 @@ def fit(run, force=False, slots=None, slot_dir=None):
     r = config.load(rcfg, "run")
     b.pop("_uses")
     tools.require(r.pop("_uses"), rcfg)
-    bhash, rhash = config.file_hash(bcfg), config.file_hash(rcfg)
+    bhash, rhash = manifest.digest(bcfg), manifest.digest(rcfg)
     _, bdoc = manifest.find(batch)
     if bdoc is None or not replicates(batch):
         die(f"{batch} has no replicates yet: simfbd extend {batch} <how many>")
-    if bdoc.get("config_hash") != bhash:
-        die(f"{bcfg} changed since its replicates were simulated ({bdoc.get('config_hash')} -> {bhash}).\n"
+    simulated_from = manifest.flat(batch).get("config_hash")
+    if simulated_from != bhash:
+        die(f"{bcfg} changed since its replicates were simulated ({simulated_from} -> {bhash}).\n"
             f"       Fitting them under it would describe data that was not drawn that way. Make a new batch.")
     n = replicates(batch)
 
@@ -174,10 +175,12 @@ def fit(run, force=False, slots=None, slot_dir=None):
         list(pool.map(one, range(1, n + 1)))
 
     rb_path, rb_md5, rb_describe = tools.rb_identity()
-    manifest.write_run(run, {"batch_dir": batch, "batch_config_hash": bhash, "config_hash": rhash,
-                             "replicates": n, "specimens": specimens,
-                             "simfbd_commit": tools.version(),
-                             "infer_script_hash": config.file_hash(template), "rb_path": rb_path,
+    manifest.write_run(run, {"batch_dir": batch, "replicates": n, "specimens": specimens,
+                             "inputs": {"config.yml": rhash,
+                                        "batch": {"config.yml": bhash,
+                                                  specimens: manifest.digest(os.path.join(batch, specimens))},
+                                        "simfbd": {template.name: manifest.digest(template)}},
+                             "simfbd_commit": tools.version(), "rb_path": rb_path,
                              "rb_md5": rb_md5, "rb_commit": rb_describe})
     done = sum(1 for f in os.listdir(out) if f.startswith("rep_") and f.endswith(".log"))
     print(f"logs: {done}/{n}, {lines_in(failures)} failed")

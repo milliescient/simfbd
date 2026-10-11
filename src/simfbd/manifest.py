@@ -154,7 +154,10 @@ def flat(d):
     if not run and doc.get("simulated"):
         # what the newest replicates were simulated with, which is what an extension must match
         last = doc["simulated"][-1]
-        out["sim_script_hash"] = shown(last["sim_script_hash"])
+        given = last.get("inputs") or {}
+        if given:
+            out["config_hash"] = shown(given.get("config.yml"))
+        out["sim_script_hash"] = shown((given.get("simfbd") or {}).get("sim.R") or last.get("sim_script_hash"))
         out["simfbd_commit"] = shown(used(last.get("uses"), "simfbd") or last.get("simfbd_commit"))
     if run:
         # a run sits at <batch>/runs/<name>, wherever the batch is, so this is never recorded
@@ -162,6 +165,11 @@ def flat(d):
         tc = doc.get("toolchain") or {}
         out["simfbd_commit"] = shown(used(doc.get("uses"), "simfbd") or tc.get("simfbd_commit"))
         out["rb_commit"] = shown(tc.get("rb_describe") or tc.get("rb_commit"))
+        given = doc.get("inputs") or {}
+        if isinstance(given.get("batch"), dict):
+            out["config_hash"] = shown(given.get("config.yml"))
+            out["batch_config_hash"] = shown(given["batch"].get("config.yml"))
+            out["infer_script_hash"] = shown(next(iter((given.get("simfbd") or {}).values()), None))
     batch_dir = out["batch_dir"] if run else d
     if os.path.exists(os.path.join(batch_dir, "config.yml")):
         # the settings are in the configs. A batch's are given as it set them, and a run's
@@ -201,6 +209,18 @@ def save(d, lines):
     os.replace(tmp, os.path.join(d, "manifest.yml"))
 
 
+def hash_lines(given, indent):
+    """Paths and their hashes as YAML, a group of them under its name."""
+    out = []
+    for name, v in given.items():
+        if isinstance(v, dict):
+            out.append(f"{indent}{name}:")
+            out += [f"{indent}  {n}: {text(h)}" for n, h in v.items()]
+        else:
+            out.append(f"{indent}{name}: {text(v)}")
+    return out
+
+
 def write_batch(d, f, value_of=None):
     _, old = find(d)
     first, last = int(f["first"]), int(f["last"])
@@ -209,28 +229,40 @@ def write_batch(d, f, value_of=None):
     if first != have + 1:
         raise SystemExit(f"manifest.py: {d} holds replicates to {have}, "
                          f"so the next cannot start at {first}")
-    simulated.append({"replicates": f"{first}-{last}",
-                      "sim_script_hash": f["sim_script_hash"],
-                      "uses": list(f.get("uses") or [f"simfbd@{f['simfbd_commit']}"]),
-                      "outputs": {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}})
+    entry = {"replicates": f"{first}-{last}",
+             "uses": list(f.get("uses") or [f"simfbd@{f['simfbd_commit']}"])}
+    if "inputs" in f:
+        entry["inputs"] = f["inputs"]
+    else:
+        entry["sim_script_hash"] = f["sim_script_hash"]      # a batch whose config is a config.sh
+    entry["outputs"] = {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}
+    simulated.append(entry)
     lines = [
         "# Written by simfbd: the record of what was simulated from config.yml. Do not edit it.",
         "kind: batch",
         f"batch: {text(os.path.basename(os.path.normpath(d)))}",
-        f"config_hash: {text(f['config_hash'])}",
+    ]
+    if "inputs" not in f:
+        lines.append(f"config_hash: {text(f['config_hash'])}")
+    lines += [
         "# interval 1 of each rate in true_vals.tsv is the youngest, as RevBayes numbers them",
         "true_vals_order: youngest_first",
         "",
         f"replicates: {last}",
-        "# One entry per simfbd extend. outputs are the batch's files as they stood after it, so",
-        "# only the last entry can still be checked: simfbd status <batch>",
+        "# One entry per simfbd extend: what ran, what it read and what the batch held after it.",
+        "# Only the last entry can still be checked, since the next one changes the files:",
+        "# simfbd status <batch>",
         "simulated:",
     ]
     for s in simulated:
         uses = s.get("uses") or [f"simfbd@{s['simfbd_commit']}"]
         lines += [f"  - replicates: {text(s['replicates'])}",
-                  f"    uses: [{', '.join(text(u) for u in uses)}]",
-                  f"    sim_script_hash: {text(s['sim_script_hash'])}"]
+                  f"    uses: [{', '.join(text(u) for u in uses)}]"]
+        if s.get("inputs"):
+            lines.append("    inputs:")
+            lines += hash_lines(s["inputs"], "      ")
+        else:
+            lines.append(f"    sim_script_hash: {text(s['sim_script_hash'])}")
         if s.get("outputs"):
             lines.append("    outputs:")
             lines += [f"      {n}: {text(h)}" for n, h in s["outputs"].items()]
@@ -263,8 +295,11 @@ def write_run(d, f, value_of=None):
         "kind: run",
         f"run: {text(os.path.basename(os.path.normpath(d)))}",
         f"batch: {text(batch['batch'])}",
-        f"batch_config_hash: {text(f['batch_config_hash'])}",
-        f"config_hash: {text(f['config_hash'])}",
+    ]
+    if "inputs" not in f:
+        lines += [f"batch_config_hash: {text(f['batch_config_hash'])}",
+                  f"config_hash: {text(f['config_hash'])}"]
+    lines += [
         f"true_vals_order: {text(batch['true_vals_order'])}",
         f"replicates: {f['replicates']}            # in the batch when this last ran",
         f"specimens: {text(f['specimens'])}",
@@ -272,14 +307,23 @@ def write_run(d, f, value_of=None):
         "# the code that ran, as name@version; rb's is the commit its binary was built from",
         f"uses: [{text('simfbd@' + f['simfbd_commit'])}, "
         f"{text('rb@' + f['rb_commit'].rsplit('-g', 1)[-1])}]",
-        "# read from the batch, and written here; simfbd status <run> checks both",
+        "# what it read: its own config, the batch's config and specimens, and the template simfbd",
+        "# carries. And what it wrote. simfbd status <run> checks them.",
         "inputs:",
-        f"  {f['specimens']}: {text(digest(os.path.join(f['batch_dir'], f['specimens'])))}",
+    ]
+    if "inputs" in f:
+        lines += hash_lines(f["inputs"], "  ")
+    else:
+        lines.append(f"  {f['specimens']}: {text(digest(os.path.join(f['batch_dir'], f['specimens'])))}")
+    lines += [
         "outputs:",
         f"  output: {text(digest(os.path.join(d, 'output')))}",
         "",
         "toolchain:",
-        f"  infer_script_hash: {text(f['infer_script_hash'])}",
+    ]
+    if "inputs" not in f:
+        lines.append(f"  infer_script_hash: {text(f['infer_script_hash'])}")
+    lines += [
         f"  rb_path: {text(f['rb_path'])}",
         f"  rb_md5: {text(f['rb_md5'])}",
         f"  rb_describe: {text(f['rb_commit'])}",
@@ -325,39 +369,55 @@ def status(d):
                 row("current" if got == want else "changed", label + name,
                     "" if got == want else f"{want} -> {got}")
 
-    name = "config.yml" if os.path.exists(os.path.join(d, "config.yml")) else "config.sh"
-    cfg = os.path.join(d, name)
-    if os.path.exists(cfg):
-        got = sha1_12(cfg)
-        row("current" if got == doc.get("config_hash") else "changed", name,
-            "" if got == doc.get("config_hash") else f"{doc.get('config_hash')} -> {got}")
-    else:
-        row("missing", name)
+    run = doc.get("kind") == "run"
+    batch_dir = (os.path.dirname(os.path.dirname(os.path.normpath(d))) or ".") if run else d
+    last = (doc.get("simulated") or [{}])[-1]
+    given = (doc.get("inputs") if run else last.get("inputs")) or {}
+    one_hash = "config.yml" in given          # everything it read is under inputs, hashed alike
 
-    if doc.get("kind") == "run":
-        batch_dir = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
+    for u in (doc.get("uses") if run else last.get("uses")) or []:
+        row("uses", u)
+    if one_hash:
+        compare(d, {"config.yml": given["config.yml"]})
+        compare(batch_dir, given.get("batch"), "batch: ")
+        # what simfbd carries is named by its commit. A script that has since changed is not a
+        # fault in the batch, so it is said and not counted.
+        from . import tools
+        for name, want in (given.get("simfbd") or {}).items():
+            at = tools.SCRIPTS / name
+            got = digest(at) if at.exists() else "gone"
+            rows.append(("current" if got == want else "differs", f"simfbd: {name}",
+                         "" if got == want else f"this simfbd's is {got}; it ran with {want}"))
+    else:
+        name = "config.yml" if os.path.exists(os.path.join(d, "config.yml")) else "config.sh"
+        cfg = os.path.join(d, name)
+        if os.path.exists(cfg):
+            got = sha1_12(cfg)
+            row("current" if got == doc.get("config_hash") else "changed", name,
+                "" if got == doc.get("config_hash") else f"{doc.get('config_hash')} -> {got}")
+        else:
+            row("missing", name)
+
+    if run:
         _, batch = find(batch_dir)
-        for u in doc.get("uses") or []:
-            row("uses", u)
-        compare(batch_dir, doc.get("inputs"), "batch: ")
+        read = given.get("batch") if one_hash else given
+        if not one_hash:
+            compare(batch_dir, given, "batch: ")
         compare(d, doc.get("outputs"))
-        if not doc.get("inputs") and not doc.get("outputs"):
+        if not given and not doc.get("outputs"):
             row("unrecorded", "inputs and outputs", "written before hashes were recorded")
         if batch:
-            if batch.get("config_hash") != doc.get("batch_config_hash"):
+            if not one_hash and batch.get("config_hash") != doc.get("batch_config_hash"):
                 row("changed", "batch: its config",
                     f"{doc.get('batch_config_hash')} -> {batch.get('config_hash')}")
             # the edge: what this run read must be what the batch says it wrote
             wrote = (batch.get("simulated") or [{}])[-1].get("outputs") or {}
-            for name, read in (doc.get("inputs") or {}).items():
-                if name in wrote and wrote[name] != read:
+            for name, got in (read or {}).items():
+                if name in wrote and wrote[name] != got:
                     row("stale", "batch: " + name,
                         f"the batch has changed since this run was fitted "
                         f"({doc.get('replicates')} -> {batch.get('replicates')} replicates)")
     else:
-        last = (doc.get("simulated") or [{}])[-1]
-        for u in last.get("uses") or []:
-            row("uses", u)
         if last.get("outputs"):
             compare(d, last["outputs"])
         else:

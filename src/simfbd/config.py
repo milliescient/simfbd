@@ -17,7 +17,6 @@ and defaults/run.yml beside this file, which list every setting there is. A batc
 extend` adds them and the manifest counts them.
 """
 import difflib
-import hashlib
 import os
 import subprocess
 
@@ -38,11 +37,6 @@ def defaults(kind):
     by_name = {name: key for key, name, _ in KINDS[kind][0]}
     doc = yaml.safe_load(open(defaults_file(kind))) or {}
     return {by_name[name]: _word(v) for name, v in _flatten(doc) if v is not None}
-
-
-def file_hash(path):
-    with open(path, "rb") as fh:
-        return hashlib.sha1(fh.read()).hexdigest()[:12]
 
 
 def _flatten(doc, prefix=""):

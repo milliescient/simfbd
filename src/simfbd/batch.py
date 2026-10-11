@@ -41,9 +41,9 @@ def extend(d, n, allow_sim_change=False):
     settings = config.load(cfg, "batch")
     stated = settings.pop("_uses")
     tools.require(stated, cfg)
-    cfg_hash = config.file_hash(cfg)
+    cfg_hash = manifest.digest(cfg)
     sim = tools.script("sim.R")
-    sim_hash = config.file_hash(sim)
+    sim_hash = manifest.digest(sim)
 
     have = 0
     path, doc = manifest.find(d)
@@ -69,8 +69,9 @@ def extend(d, n, allow_sim_change=False):
         env.pop(stale, None)
     if subprocess.run([tools.rscript(), str(sim)], env=env).returncode != 0:
         die("simulation failed")
-    manifest.write_batch(d, {"first": have + 1, "last": last, "config_hash": cfg_hash,
-                             "sim_script_hash": sim_hash, "simfbd_commit": tools.version(),
+    manifest.write_batch(d, {"first": have + 1, "last": last,
+                             "inputs": {"config.yml": cfg_hash, "simfbd": {"sim.R": sim_hash}},
+                             "simfbd_commit": tools.version(),
                              "uses": tools.uses(tools.SIMULATES)})
     # the simulator reports what it actually drew with; disagreement means a setting did not reach it
     used = os.path.join(d, "sim_params.tsv")
