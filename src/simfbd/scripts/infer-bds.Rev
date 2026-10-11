@@ -44,17 +44,22 @@ if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
 # Truncating an exponential below at m and shifting it to m are the same thing, so the
 # offset argument gives PyRate's prior exactly.
 if (ORIGIN_PRIOR == "exponential") {
-    org_prior = dnExponential(1/MAXFA, offset=MAXFA)
+    origin ~ dnExponential(1/MAXFA, offset=MAXFA)
 } else {
-    org_prior = dnUniform(AGE_MIN, AGE_MAX)
+    origin ~ dnUniform(AGE_MIN, AGE_MAX)
 }
+# The oldest birth is welded to this node, so the record's oldest occurrence bounds it from
+# below. AGE_MAX is above every occurrence, so starting there is always feasible.
+origin.setValue(AGE_MAX)
+moves.append( mvSlide(origin, delta=0.5, weight=2) )
+moves.append( mvSlide(origin, delta=2.0, weight=2) )
 
 if (SKYLINE) {
     bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 timeline=timeline, condition=COND, origin_prior=org_prior)
+                 timeline=timeline, condition=COND, origin=origin)
 } else {
     bd ~ dnBDS(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 condition=COND, origin_prior=org_prior)
+                 condition=COND, origin=origin)
 }
 
 # the reporting model is its own node now, clamped to the observed record
