@@ -11,7 +11,9 @@ That puts `simfbd` on the path. It runs R and RevBayes, which are not Python's t
 Each is found from `$RBIN` or `$RSCRIPT`, else `~/.config/simfbd/tools.yml`, else `PATH`:
 
 ```yaml
-rb: /opt/revbayes/build/rb
+rb:                               # one build, or a list of them
+  - /opt/revbayes/build/rb
+  - /opt/revbayes/build-older/rb
 rscript: /opt/R/bin/Rscript
 ```
 
@@ -20,10 +22,6 @@ packages are there. Every `extend` and `fit` prints the same two lines before it
 a machine with no tools file quietly falls back to whatever is on `PATH`. `simfbd uses` prints
 what would run as `name@version`, and `simfbd uses rb` one version.
 
-Which rb fits a run is simfbd's to check, not a notebook's. A notebook's own check of rb sees
-the one its scripts get by calling `rb`, which need not be the one simfbd finds, so a run that
-must be fitted by a particular build says so in its own config, below.
-
 A config can say which versions it is to be run with, and is then refused where they are not
 those, however the tools were found:
 
@@ -31,6 +29,25 @@ those, however the tools were found:
 uses: [rb@28e5b2]                 # in a run's config: any of simfbd, rb
 uses: [paleobuddy@1.1.0, R@4.5.3] # in a batch's: any of simfbd, R, paleobuddy
 ```
+
+### Which rb fits a run
+
+A machine can hold several builds of rb, and each is known by the commit its binary carries,
+which `simfbd doctor` lists. `simfbd fit` picks one for the run, by the first of these that
+applies:
+
+1. the version the run's config states under `uses`. If no build here is that one, the fit is
+   refused and the builds that are here are listed.
+2. the build that fitted the run's earlier replicates, read from its manifest, so a run that
+   is topped up after its batch is extended keeps one rb throughout. If that build is gone the
+   fit is refused; `--force` goes on with the default and the manifest then names the new one.
+3. the first build the tools file lists, else `rb` on `PATH`.
+
+`$RBIN` overrides all three for one command, and is still held to what the config states.
+
+So which rb fits a run is simfbd's to settle, not a notebook's. A notebook's own check of rb
+sees the one its scripts get by calling `rb`, which need not be the one simfbd picks. The run's
+manifest says which it was, as `uses: ["simfbd@...", "rb@..."]`, and a notebook can show that.
 
 ## Layout
 

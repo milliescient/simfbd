@@ -94,6 +94,11 @@ def cmd_doctor(a):
         print(f"{label:<10} {at}  ({rule})")
     _, _, describe = tools.rb_identity()
     print(f"           rb was built from {describe}")
+    builds = tools.rb_builds()
+    if len(builds) > 1:
+        print("           a run can be fitted by any of these, by stating it under uses in its config:")
+        for path, commit in builds:
+            print(f"             rb@{commit}  {path}")
     r = subprocess.run([tools.rscript(), "-e",
                         'for (p in c("paleobuddy","posterior","SBC")) cat(sprintf("%-10s %s\\n", p, '
                         'if (requireNamespace(p, quietly=TRUE)) as.character(packageVersion(p)) else "NOT INSTALLED"))'],

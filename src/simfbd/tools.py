@@ -3,11 +3,17 @@
 rb and Rscript are looked for in the environment first ($RBIN, $RSCRIPT), then in
 ~/.config/simfbd/tools.yml, then on PATH:
 
-    rb: /opt/revbayes/build/rb
+    rb:
+      - /opt/revbayes/build/rb
+      - /opt/revbayes/build-older/rb
     rscript: /opt/R/bin/Rscript
 
 So a machine says once where its builds are, and a single run can still be pointed at
 another without editing anything.
+
+A machine can list several builds of rb, and each is known by the commit its binary carries.
+Which of them fits a run is choose_rb()'s to say: the one the run's config states, else the
+one that fitted the run's earlier replicates, else the first listed.
 """
 import os
 import shutil
@@ -38,8 +44,79 @@ def _find(var, key, fallback):
     return fallback, "from PATH"
 
 
+def _listed():
+    """The builds of rb the tools file names, in its order."""
+    got = _configured().get("rb") or []
+    return [str(b) for b in ([got] if isinstance(got, str) else got)]
+
+
+def _rb():
+    """(the program, which rule supplied it), before a run has had its say."""
+    if os.environ.get("RBIN"):
+        return os.environ["RBIN"], "from $RBIN"
+    if _chosen:
+        return _chosen
+    if _listed():
+        return _listed()[0], f"from {TOOLS_FILE}" + (", the first listed" if len(_listed()) > 1 else "")
+    return "rb", "from PATH"
+
+
 def rb():
-    return _find("RBIN", "rb", "rb")[0]
+    return _rb()[0]
+
+
+def rb_builds():
+    """Every build of rb this machine has, as (path, the commit it was built from): the ones
+    the tools file lists, then the one on PATH if it is not among them."""
+    paths = [which(b) for b in _listed()]
+    on_path = shutil.which("rb")
+    if on_path and on_path not in paths:
+        paths.append(on_path)
+    return [(p, rb_identity(p)[2].rsplit("-g", 1)[-1]) for p in paths]
+
+
+def same_version(have, want):
+    """A commit may be abbreviated differently in two places, so two hex strings match when
+    one begins the other. Anything else is compared whole, and -dirty never matches."""
+    import re
+    hexes = all(re.fullmatch(r"[0-9a-f]{6,40}", v) for v in (have, want))
+    return have == want or (hexes and (have.startswith(want) or want.startswith(have)))
+
+
+_chosen = None
+
+
+def choose_rb(stated=None, recorded=None, config="", run="", force=False):
+    """Settle which build of rb fits a run.
+
+    The version its config states under `uses` wins, and is refused when no build here is
+    that one. Otherwise the build that fitted the run's earlier replicates, so one run's logs
+    all come from one rb; when that build is gone it is refused, unless forced. Otherwise the
+    first listed. $RBIN overrides all of it for one command, and require() still holds it to
+    what the config states.
+    """
+    global _chosen
+    _seen.pop("rb", None)
+    if os.environ.get("RBIN"):
+        return
+    for want, why in ((stated, f"{config} states rb@{stated}"),
+                      (recorded, f"rb@{recorded} fitted the earlier replicates of {run}")):
+        if not want or want == "unknown":
+            continue
+        builds = rb_builds()
+        for path, commit in builds:
+            if same_version(commit, want):
+                _chosen = (path, why)
+                return
+        have = "\n".join(f"         rb@{c}  {p}" for p, c in builds) or "         none"
+        if want is stated:
+            raise SystemExit(f"error: {why}, and no build of rb here is that one. This machine has\n"
+                             f"{have}\n       List the build in {TOOLS_FILE}.")
+        if not force:
+            raise SystemExit(f"error: {why}, and no build of rb here is that one. "
+                             f"This machine has\n{have}\n"
+                             f"       Fitting the rest with another would mix two builds in one run. "
+                             f"List the build in {TOOLS_FILE},\n       or pass --force to use the first listed.")
 
 
 def rscript():
@@ -49,7 +126,7 @@ def rscript():
 def found():
     """Where each tool was found and why, for a person to read before a long run."""
     return [(name, shutil.which(prog) or f"NOT FOUND: {prog}", rule)
-            for name, (prog, rule) in (("rb", _find("RBIN", "rb", "rb")),
+            for name, (prog, rule) in (("rb", _rb()),
                                        ("Rscript", _find("RSCRIPT", "rscript", "Rscript")))]
 
 
@@ -141,35 +218,35 @@ def uses(names):
 
 
 def require(stated, where):
-    """Refuse unless everything a config names under `uses` is here at that version.
-
-    A commit may be abbreviated differently in the two places, so two hex strings match when
-    one begins the other. Anything else is compared whole, and -dirty never matches.
-    """
-    import re
+    """Refuse unless everything a config names under `uses` is here at that version."""
     bad = []
     for u in stated:
         name, at, want = str(u).partition("@")
         if name not in KNOWN or not at or not want:
             raise SystemExit(f"error: {where}: uses {u}; write one of {', '.join(KNOWN)} as name@version")
         have = version_of(name)
-        hexes = all(re.fullmatch(r"[0-9a-f]{6,40}", v) for v in (have, want))
-        if not (have == want or (hexes and (have.startswith(want) or want.startswith(have)))):
+        if not same_version(have, want):
             bad.append(f"{name} is at {have} here, and {where} states {name}@{want}")
     if bad:
         raise SystemExit("error: " + "\n       ".join(bad))
 
 
-def rb_identity():
-    """(path, md5 of the binary, the git describe it carries). The binary names what
-    actually ran even after its source tree moves on; an md5 identifies a build, not a commit."""
+_identities = {}
+
+
+def rb_identity(path=None):
+    """(path, md5 of the binary, the git describe it carries), for the rb that would run or
+    for the build at a path. The binary names what actually ran even after its source tree
+    moves on; an md5 identifies a build, not a commit."""
     import hashlib
     import re
-    path = which(rb())
-    try:
-        data = Path(path).read_bytes()
-    except OSError:
-        return path, "unknown", "unknown"
-    md5 = hashlib.md5(data).hexdigest()[:12]
-    m = re.search(rb"(?<![\x20-\x7e])([A-Za-z0-9._-]+-[0-9]+-g[0-9a-f]{6,})(?![\x20-\x7e])", data)
-    return path, md5, m.group(1).decode() if m else "unknown"
+    path = which(path or rb())
+    if path not in _identities:
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
+            return path, "unknown", "unknown"
+        md5 = hashlib.md5(data).hexdigest()[:12]
+        m = re.search(rb"(?<![\x20-\x7e])([A-Za-z0-9._-]+-[0-9]+-g[0-9a-f]{6,})(?![\x20-\x7e])", data)
+        _identities[path] = (path, md5, m.group(1).decode() if m else "unknown")
+    return _identities[path]

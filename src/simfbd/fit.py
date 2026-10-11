@@ -65,7 +65,14 @@ def fit(run, force=False, slots=None, slot_dir=None):
     b = config.load(bcfg, "batch")
     r = config.load(rcfg, "run")
     b.pop("_uses")
-    tools.require(r.pop("_uses"), rcfg)
+    stated = r.pop("_uses")
+    # which rb: the one the config states, else the one that fitted this run before
+    before = manifest.find(run)[1] or {}
+    tools.choose_rb(stated=manifest.used(stated, "rb"),
+                    recorded=manifest.used(before.get("uses"), "rb")
+                    or ((before.get("toolchain") or {}).get("rb_describe") or "").rsplit("-g", 1)[-1],
+                    config=rcfg, run=run, force=force)
+    tools.require(stated, rcfg)
     bhash, rhash = manifest.digest(bcfg), manifest.digest(rcfg)
     _, bdoc = manifest.find(batch)
     if bdoc is None or not replicates(batch):
