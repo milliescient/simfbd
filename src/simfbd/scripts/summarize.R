@@ -178,6 +178,7 @@ rate_stats <- function(mf, ids, logs) {
 
 # b, d and tau1, one extinct taxon per replicate. Returns NULL if nothing usable was logged.
 latent_stats <- function(mf, ids) {
+  from <- list()
   sim_dir <- mf$batch_dir
   nonext <- is_nonextended(mf)
   load(file.path(sim_dir, "sim_list.RData"))   # -> sims
@@ -228,7 +229,7 @@ latent_stats <- function(mf, ids) {
     kcols <- grep("^tauK\\[", names(ll))
     k_mat <- if (nonext && length(kcols) == n_taxa) as.matrix(ll[keep, kcols, drop = FALSE]) else NULL
 
-    cand_draws <- list(); cand_truth <- list()
+    cand_draws <- list(); cand_truth <- list(); cand_taxon <- list()
     for (j in seq_along(taxa)) {
       k <- as.integer(sub("t", "", taxa[j]))
       true_d <- if (is.na(s$TE[k])) 0 else s$TE[k]
@@ -256,6 +257,7 @@ latent_stats <- function(mf, ids) {
       cand_truth[[length(cand_truth) + 1]] <-
         if (nonext) c(b = true_b, tau1 = first_age)
         else        c(b = true_b, d = true_d, tau1 = first_age)
+      cand_taxon[[length(cand_taxon) + 1]] <- taxa[j]
     }
     if (!length(cand_draws)) next
 
@@ -264,10 +266,15 @@ latent_stats <- function(mf, ids) {
     j <- sample.int(length(cand_draws), 1)
     draws[[length(draws) + 1]] <- cand_draws[[j]]
     truth[[length(truth) + 1]] <- cand_truth[[j]]
+    # sim_id is a position in this list, not a replicate number, so the pair is recorded here
+    # or there is no way to split a rank by anything about the record it came from
+    from[[length(from) + 1]] <- data.frame(sim_id = length(draws), rep = rep,
+                                           taxon = cand_taxon[[j]], n_taxa = n_taxa)
   }
   if (!length(draws)) return(NULL)
   cat("   latents: one extinct taxon from each of", length(draws), "replicates\n")
   res <- stats_for(draws, posterior::as_draws_matrix(do.call(rbind, truth)))
+  res$scored_from <- do.call(rbind, from)
   # youngest to oldest, the order the range is read in (rank_summary splits on this;
   # the plots take the same order through the variables= argument)
   res$stats$variable <- factor(res$stats$variable, levels = latent_order_for(mf))
