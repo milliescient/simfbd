@@ -229,6 +229,36 @@ latent_stats <- function(mf, ids) {
     kcols <- grep("^tauK\\[", names(ll))
     k_mat <- if (nonext && length(kcols) == n_taxa) as.matrix(ll[keep, kcols, drop = FALSE]) else NULL
 
+    # b is where this lineage last branched off a SAMPLED one, not the taxon's own origination:
+    # the stem above o_i uses the unsampled propagator q, which permits any number of species
+    # changes between the branching and the first fossil. Walk up through unsampled ancestors.
+    true_b_all <- numeric(length(taxa))
+    founder <- logical(length(taxa))
+    off_root <- numeric(length(taxa))
+    for (j in seq_along(taxa)) {
+      k <- as.integer(sub("t", "", taxa[j]))
+      cur <- k
+      par <- s$PAR[cur]
+      while (!is.na(par) && !(par %in% sim_idx)) { cur <- par; par <- s$PAR[cur] }
+      true_b_all[j] <- s$TS[cur]
+      founder[j] <- is.na(par)        # the walk ran out of ancestors, so the chain reaches species 1
+      # where that chain left species 1's lineage, for the rows that cannot hold the origin
+      ch <- k
+      pp <- s$PAR[ch]
+      while (!is.na(pp) && pp != 1) { ch <- pp; pp <- s$PAR[ch] }
+      off_root[j] <- s$TS[ch]
+    }
+
+    # The density allows one zero-gamma row and it must start at the origin, so only one chain
+    # that reaches species 1 may claim it. Budding keeps species 1's lineage going, so the chain
+    # that left it LAST is its continuation and holds the origin; the rest branched off that
+    # lineage at off_root. Claiming it for all of them puts the truth outside the support.
+    fi <- which(founder)
+    if (length(fi) > 1) {
+      rest <- setdiff(fi, fi[which.min(off_root[fi])])
+      true_b_all[rest] <- off_root[rest]
+    }
+
     cand_draws <- list(); cand_truth <- list(); cand_taxon <- list()
     for (j in seq_along(taxa)) {
       k <- as.integer(sub("t", "", taxa[j]))
@@ -246,13 +276,7 @@ latent_stats <- function(mf, ids) {
       cand_draws[[length(cand_draws) + 1]] <- posterior::as_draws_matrix(
         if (nonext) cbind(b = b_mat[, j], tau1 = t_mat[, j])
         else        cbind(b = b_mat[, j], d = d_mat[, j], tau1 = t_mat[, j]))
-      # b is where this lineage last branched off a SAMPLED one, not the taxon's own origination:
-      # the stem above o_i uses the unsampled propagator q, which permits any number of species
-      # changes between the branching and the first fossil. Walk up through unsampled ancestors.
-      cur <- k
-      par <- s$PAR[cur]
-      while (!is.na(par) && !(par %in% sim_idx)) { cur <- par; par <- s$PAR[cur] }
-      true_b <- s$TS[cur]
+      true_b <- true_b_all[j]
 
       cand_truth[[length(cand_truth) + 1]] <-
         if (nonext) c(b = true_b, tau1 = first_age)
