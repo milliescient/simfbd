@@ -212,7 +212,8 @@ def fit(run, force=False, slots=None, slot_dir=None):
                 f'BATCHDIR <- "{absolute(batch)}"', f'SPECIMENS <- "{specimens}"',
                 f'OUTDIR <- "{absolute(to)}"']
         head += [f"{k} <- {v[k]}" for k in HEAD]
-        head += [f"SURVIVORS <- {r['SURVIVORS']}", f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}"]
+        head += [f"SURVIVORS <- {r['SURVIVORS']}", f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}",
+                 f"LATENTS <- {r['LATENTS']}"]
         head += [f"{k} <- {v[k]}" for k in ("GMRF_SD", "GMRF_SD_MEAN", "GMRF_SD_SD", "GMRF_PSI_MEAN", "GMRF_PSI_SD")]
         head += [f'BINDIR <- "{tools.SCRIPTS}"'] + treated
         head += [f"{k} <- {v[k]}" for k in TAIL]

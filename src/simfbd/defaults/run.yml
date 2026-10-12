@@ -19,6 +19,7 @@ inference:
                              # the oldest birth is the process start under an improper flat
                              # prior and the matrix moves sample it
   survivors: true
+  monitor_latents: true          # false writes the rates only, so there are no latent ranks
   drop_present_only_taxa: false
 
 mcmc:

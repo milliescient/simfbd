@@ -96,6 +96,9 @@ RUN_SETTINGS = [
     ("RHO", "inference.extant_sampling_probability", ""),
     ("ORIGIN_PRIOR", "inference.origin_prior", ""),
     ("SURVIVORS", "inference.survivors", ""),
+    ("LATENTS", "inference.monitor_latents",
+     "false drops the per-taxon b, d, tau_1 and tau_K from the log, which a rates-only "
+     "comparison never reads and which costs 63 MB a replicate on a thousand ranges"),
     ("DROP_PRESENT_ONLY", "inference.drop_present_only_taxa", ""),
     ("GENS", "mcmc.generations", ""),
     ("PRINTGEN", "mcmc.sample_every", ""),

@@ -67,9 +67,15 @@ if (taxa.size() > 1) {
 }
 moves.append( mvStratigraphicRange(tr, weight=taxa.size()) )
 
-bb   := tr.getOriginationTimes()
-tau1 := tr.getFirstAppearances()
-tauK := tr.getLastAppearances()
+# mnModel monitors every node in the model, so a per-taxon latent is dropped by not
+# creating it. One record of a thousand ranges writes 63 MB of them, which a rates
+# comparison never reads. org is a scalar and stays either way.
+if (!exists("LATENTS")) LATENTS <- TRUE
+if (LATENTS) {
+    bb   := tr.getOriginationTimes()
+    tau1 := tr.getFirstAppearances()
+    tauK := tr.getLastAppearances()
+}
 nsa  := tr.numSampledAncestors()
 
 mymodel = model(tr)

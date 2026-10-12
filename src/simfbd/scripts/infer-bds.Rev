@@ -108,14 +108,28 @@ if (RHO < 1.0 && SURVIVORS) {
 }
 
 org  := bd.getOrigin()
-bb   := bd.getOriginationTimes()
-dd   := bd.getExtinctionTimes()
-tau1 := bd.getFirstAppearances()
-tauK := bd.getLastAppearances()
+# mnModel monitors every node in the model, so a per-taxon latent is dropped by not
+# creating it. One record of a thousand ranges writes 63 MB of them, which a rates
+# comparison never reads. org is a scalar and stays either way.
+if (!exists("LATENTS")) LATENTS <- TRUE
+if (LATENTS) {
+    bb   := bd.getOriginationTimes()
+    dd   := bd.getExtinctionTimes()
+    tau1 := bd.getFirstAppearances()
+    tauK := bd.getLastAppearances()
+}
 
 mymodel = model(bd)
 monitors = VectorMonitors()
-monitors.append( mnModel(filename=OUTDIR + "/rep_" + rep + ".log", printgen=PRINTGEN) )
+if (LATENTS) {
+    monitors.append( mnModel(filename=OUTDIR + "/rep_" + rep + ".log", printgen=PRINTGEN) )
+} else {
+    # mnModel writes every node in the model, and the range matrix alone is four columns a
+    # taxon, so dropping the latents is not enough on a thousand ranges. Name the rates
+    # instead. A run like this records no hyperparameter truths, so it has no ranks for them.
+    monitors.append( mnFile(filename=OUTDIR + "/rep_" + rep + ".log", printgen=PRINTGEN,
+                            lambda, mu, psi, org) )
+}
 monitors.append( mnScreen(printgen=100000) )
 mymcmc = mcmc(mymodel, monitors, moves, moveschedule="single")
 mymcmc.run(generations=GENS)

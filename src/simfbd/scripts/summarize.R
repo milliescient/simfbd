@@ -217,7 +217,7 @@ latent_stats <- function(mf, ids) {
       b_mat <- as.matrix(ll[keep, bcols, drop = FALSE])
       d_mat <- NULL
     } else {
-      next   # bin/infer.Rev always monitors bb/dd, so a log without them is malformed
+      next   # the run did not monitor the per-taxon latents, so there are no latent ranks
     }
 
     t_mat <- as.matrix(ll[keep, tcols, drop = FALSE])
