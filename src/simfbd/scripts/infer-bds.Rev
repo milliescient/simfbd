@@ -12,7 +12,9 @@
 ###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
 ###   ORIGIN_PRIOR, MAXFA, SURVIVORS
 
-taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
+# TAXA is set when the run treats the occurrence ages some other way than as reported
+if (!exists("TAXA")) TAXA <- BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv"
+taxa <- readTaxonData(TAXA)
 
 # PyRate's input is fossil occurrences, so a taxon seen only alive at the present is not in it.
 # Dropping them keeps the rest exactly PyRate's likelihood under condition="sampling".

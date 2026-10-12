@@ -49,6 +49,8 @@ def _flatten(doc, prefix=""):
 
 
 def _word(v):
+    if isinstance(v, list):
+        return ",".join(_word(x) for x in v)
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, float) and v == int(v) and abs(v) < 1e15:

@@ -129,6 +129,32 @@ PMEAN <- cfg("PMEAN"); PSD <- cfg("PSD")
 AGE_MIN <- cfg("AGE_MIN"); AGE_MAX <- cfg("AGE_MAX")
 BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 
+# a key holding several numbers, comma separated; unset is none
+cfg_list <- function(k) {
+  v <- Sys.getenv(k)
+  if (v == "") numeric(0) else as.numeric(strsplit(v, ",")[[1]])
+}
+# The same record reported to other grids as well, every width at every offset, so fits that
+# differ only in dating resolution are paired on one set of fossils. Width 0 is the exact ages.
+# An offset is a fraction of the width: 0.5 moves a grid's edges by half a bin.
+BIN_WIDTHS <- cfg_list("BIN_WIDTHS")
+BIN_OFFSETS <- cfg_list("BIN_OFFSETS")
+if (!length(BIN_OFFSETS)) BIN_OFFSETS <- 0
+if (anyNA(BIN_WIDTHS) || any(BIN_WIDTHS < 0)) stop("BIN_WIDTHS must be numbers, none below 0")
+if (anyNA(BIN_OFFSETS) || any(BIN_OFFSETS < 0 | BIN_OFFSETS >= 1))
+  stop("BIN_OFFSETS are fractions of a bin, from 0 up to but not 1")
+more_grids <- unique(do.call(rbind, c(list(data.frame(w = numeric(0), off = numeric(0))),
+  lapply(BIN_WIDTHS, function(w) data.frame(w = w, off = if (w == 0) 0 else BIN_OFFSETS)))))
+grid_label <- function(w, off) paste0("w", w, if (off != 0) paste0("_o", off))
+
+# An age's cell on a grid, (lower, upper] as paleobuddy's are. The grid stops at PRESENT and at
+# AGE_MAX, which the analysis knows anyway, so an offset grid has no bin past the origin prior.
+rebin <- function(age, w, off) {
+  if (w == 0) return(list(min = age, max = age))
+  hi <- w * (off + ceiling(age / w - off))
+  list(min = pmax(hi - w, PRESENT), max = pmin(hi, AGE_MAX))
+}
+
 # Off the grid, the top occurrence bin runs past AGE_MAX, so no origin the prior can draw
 # covers it and tau_1 is squeezed into what is left.
 if (abs(AGE_MAX %% BIN_WIDTH) > 1e-9) {
@@ -604,7 +630,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 
     # an SBC rep reports the same record three ways; an accuracy rep just once
     models <- if (sbc) sbc_models else model
-    specs <- rep(list(data.frame(matrix(nrow = 0, ncol = 4))), length(models))
+    specs <- rep(list(data.frame(matrix(nrow = 0, ncol = 5))), length(models))
     names(specs) <- names(models)
     ranges <- data.frame(matrix(nrow = 0, ncol = 3))
 
@@ -615,7 +641,8 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       sp <- sp_list[i]
       
       # get vector of occurrences for that species
-      occs <- fossils[fossils$Species == sp, -which(colnames(fossils) == "SampT")]
+      # the true time rides along as a fifth column, for the other grids
+      occs <- fossils[fossils$Species == sp, ]
       
       # and get true occurrence times
       true_occs <- fossils[fossils$Species == sp, c("Species", "Extant", "SampT")]
@@ -638,8 +665,8 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     
     # reorder and rename columns
     for (m in seq_along(specs)) {
-      specs[[m]] <- specs[[m]][, c(1, 4, 3, 2)]
-      colnames(specs[[m]]) <- c("taxon", "min_age", "max_age", "status")
+      specs[[m]] <- specs[[m]][, c(1, 5, 4, 2, 3)]
+      colnames(specs[[m]]) <- c("taxon", "min_age", "max_age", "status", "age")
 
       # change status column to extant and extinct
       specs[[m]]$status <- c("extinct", "extant")[specs[[m]]$status + 1]
@@ -705,7 +732,8 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       if (nm %in% reported) next
       for (m in seq_along(specs)) {
         specs[[m]] <- rbind(specs[[m]], data.frame(taxon = nm, min_age = PRESENT,
-                            max_age = PRESENT, status = "extant", stringsAsFactors = FALSE))
+                            max_age = PRESENT, status = "extant", age = PRESENT,
+                            stringsAsFactors = FALSE))
       }
       ranges <- rbind(ranges, data.frame(taxon = nm, first_age = PRESENT, last_age = PRESENT,
                                          stringsAsFactors = FALSE))
@@ -868,8 +896,22 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
       spec_dir <- if (sbc) paste0(base_dir, "/specimens_", names(specs)[m]) else
                                 paste0(base_dir, "/specimens")
       smart_dir_create(spec_dir)
-      write.table(specs[[m]], paste0(spec_dir, "/taxa_", rep, ".tsv"),
+      write.table(specs[[m]][, 1:4], paste0(spec_dir, "/taxa_", rep, ".tsv"),
                   col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
+
+      # and the same rows on each other grid, as specimens_<model>_w<width>[_o<offset>]
+      if (sbc) for (g in seq_len(nrow(more_grids))) {
+        s <- specs[[m]]
+        # a survivor seen at the present is a status, not an occurrence, and has no bin
+        occ <- s$min_age != s$max_age
+        cell <- rebin(s$age[occ], more_grids$w[g], more_grids$off[g])
+        s$min_age[occ] <- cell$min
+        s$max_age[occ] <- cell$max
+        grid_dir <- paste0(spec_dir, "_", grid_label(more_grids$w[g], more_grids$off[g]))
+        smart_dir_create(grid_dir)
+        write.table(s[, 1:4], paste0(grid_dir, "/taxa_", rep, ".tsv"),
+                    col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
+      }
     }
     
     # save true ranges

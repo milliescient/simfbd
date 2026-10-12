@@ -63,6 +63,8 @@ record:
   occurrence_bins:
     width:                         # required. occurrence ages are reported to these bins
     oldest_edge:                   # required
+    also_widths:                   # a list. the same record on other grids too, as specimens_<model>_w<width>; 0 is the exact ages
+    also_offsets:                  # a list. each of those shifted by this fraction of a bin as well, as ..._o<offset>
 
 accepted_replicates:
   min_taxa: 1                      # a replicate outside these bounds is redrawn

@@ -8,7 +8,9 @@
 ###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
 ###   LAMBDA_A
 
-taxa <- readTaxonData(BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv")
+# TAXA is set when the run treats the occurrence ages some other way than as reported
+if (!exists("TAXA")) TAXA <- BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv"
+taxa <- readTaxonData(TAXA)
 
 # an aux file written before truncation existed does not set this
 if (!exists("PRESENT")) PRESENT <- 0

@@ -62,6 +62,10 @@ BATCH_SETTINGS = [
     ("BIN_WIDTH", "record.occurrence_bins.width",
      "occurrence ages are reported to these bins"),
     ("BIN_MAX", "record.occurrence_bins.oldest_edge", ""),
+    ("BIN_WIDTHS", "record.occurrence_bins.also_widths",
+     "the same record on other grids too, as specimens_<model>_w<width>; 0 is the exact ages"),
+    ("BIN_OFFSETS", "record.occurrence_bins.also_offsets",
+     "each of those shifted by this fraction of a bin as well, as ..._o<offset>"),
 
     ("MIN_TAXA", "accepted_replicates.min_taxa",
      "a replicate outside these bounds is redrawn"),
@@ -80,6 +84,10 @@ RUN_SETTINGS = [
     ("MODEL", "inference.model", "fbdr: dnFBDRP; bds: dnBDS; fbdsp: dnFBDSP"),
     ("REPORTING", "inference.record_read", "the batch's specimens_<this> directory"),
     ("INFER", "inference.record_treated_as", "complete or incomplete"),
+    ("AGES", "inference.occurrence_ages",
+     "reported: the bins as they are; midpoint: each at its bin's middle; drawn: each uniform in its bin"),
+    ("AGE_DRAWS", "inference.age_draws",
+     "when drawn: this many draws, a chain each, pooled into one posterior per replicate"),
     ("COND", "inference.conditioned_on", ""),
     ("RHO", "inference.extant_sampling_probability", ""),
     ("ORIGIN_PRIOR", "inference.origin_prior", ""),
@@ -120,4 +128,5 @@ RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN"
 # a setting that takes one of a few words
 CHOICES = {"MODEL": ("fbdr", "bds", "fbdsp"), "INFER": ("complete", "incomplete"),
            "TAXA_COUNT": ("fossil", "record"),
-           "ORIGIN_PRIOR": ("uniform", "exponential", "none")}
+           "ORIGIN_PRIOR": ("uniform", "exponential", "none"),
+           "AGES": ("reported", "midpoint", "drawn")}

@@ -10,6 +10,7 @@ that has been extended fits only the new replicates.
 """
 import fcntl
 import os
+import random
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +54,58 @@ def max_first_appearance(taxa):
     return f"{x if x > 0 else 1:.6f}"
 
 
+def midpoints_on_a_shift(batch, specimens, n):
+    """Replicates in which some bin's midpoint is a rate-shift time. Such an age is in neither
+    interval, so rb finds no starting state. It is every replicate when a grid as wide as the
+    rate intervals is offset by half a bin."""
+    hit = []
+    for rep in range(1, n + 1):
+        with open(os.path.join(batch, "times", f"times_{rep}.tsv")) as fh:
+            shifts = [float(t) for t in fh.read().split()]
+        with open(os.path.join(batch, specimens, f"taxa_{rep}.tsv")) as fh:
+            next(fh, None)
+            ages = {(float(f[1]) + float(f[2])) / 2 for f in (l.split("\t") for l in fh)
+                    if f[1] != f[2]}
+        if any(abs(a - t) < 1e-9 for a in ages for t in shifts):
+            hit.append(rep)
+    return hit
+
+
+def treat_ages(taxa, out, how, seed):
+    """Write a specimens table with every occurrence at an exact age: its bin's midpoint, or
+    a uniform draw within the bin. This is what an analysis without age ranges is given."""
+    rng = random.Random(seed)
+    with open(taxa) as src, open(out, "w") as dst:
+        dst.write(next(src))
+        for line in src:
+            f = line.rstrip("\n").split("\t")
+            lo, hi = float(f[1]), float(f[2])
+            if lo != hi:
+                age = (lo + hi) / 2 if how == "midpoint" else rng.uniform(lo, hi)
+                f[1] = f[2] = f"{age:.6f}"
+            dst.write("\t".join(f) + "\n")
+
+
+BURN = 0.25      # what summarize.R and ranks.py drop from the head of a log
+
+
+def pool_draws(logs, out):
+    """One log standing for several draws' chains, the length of one of them, so whatever
+    reads a replicate's log reads the pooled posterior. Its head is the first draw's burn-in,
+    which every reader drops. The rest takes each sample after burn-in from the next draw in
+    turn, so each draw counts the same and no stretch of the log is one draw's alone: a
+    single-chain effective sample size would read a block per draw as autocorrelation."""
+    chains = []
+    for path in logs:
+        with open(path) as fh:
+            header, *rows = fh.readlines()
+        chains.append(rows)
+    burn = int(len(chains[0]) * BURN)
+    kept = [chains[i % len(chains)][i] for i in range(burn, len(chains[0]))]
+    with open(out, "w") as fh:
+        fh.writelines([header] + chains[0][:burn] + kept)
+
+
 def fit(run, force=False, slots=None, slot_dir=None):
     run = os.path.normpath(run)
     batch = os.path.dirname(os.path.dirname(run))
@@ -94,6 +147,12 @@ def fit(run, force=False, slots=None, slot_dir=None):
     if not os.path.isdir(os.path.join(batch, specimens)):
         die(f"the batch has no {specimens}")
     sky = "true" if int(b["NINTERVALS"]) > 1 else "false"
+    if r["AGES"] == "midpoint":
+        hit = midpoints_on_a_shift(batch, specimens, n)
+        if hit:
+            die(f"in {len(hit)} of {n} replicates of {specimens} a bin's midpoint is a rate-shift "
+                f"time, which is in neither interval, so those chains cannot start. Read a grid "
+                f"whose midpoints miss the shifts.")
 
     path, _ = manifest.find(run)
     if path is not None and not force:
@@ -109,7 +168,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
     for d in (out, aux, os.path.join(run, "results")):
         os.makedirs(d, exist_ok=True)
     print(f"{os.path.basename(run)}: batch={os.path.basename(batch)} reads={r['REPORTING']} "
-          f"treated as {r['INFER']} conditioned on {r['COND']} rho={r['RHO']} reps={n}", flush=True)
+          f"ages {r['AGES']} treated as {r['INFER']} conditioned on {r['COND']} rho={r['RHO']} reps={n}", flush=True)
     warn_if_dirty()
     tools.announce()
 
@@ -124,28 +183,41 @@ def fit(run, force=False, slots=None, slot_dir=None):
     if slots:
         os.makedirs(slot_dir, exist_ok=True)
 
-    def one(rep):
-        log = os.path.join(out, f"rep_{rep}.log")
+    draws = int(r["AGE_DRAWS"]) if r["AGES"] == "drawn" else 1
+
+    def chain(rep, draw):
+        """One chain: the replicate as reported, or one draw of its ages. True if it finished."""
+        # a draw beyond the first keeps its files apart, and its log is pooled, not read
+        work = os.path.join(aux, f"draw_{draw}") if draws > 1 else aux
+        to = work if draws > 1 else out
+        os.makedirs(work, exist_ok=True)
+        log = os.path.join(to, f"rep_{rep}.log")
         if os.path.exists(log) and lines_in(log) == full:
-            return
+            return True
         # one self-contained file per replicate: the settings as Rev variables, then the template
         v = {**UNSET, **b, **r}
+        taxa = os.path.join(batch, specimens, f"taxa_{rep}.tsv")
+        treated = []
+        if r["AGES"] != "reported":
+            src, taxa = taxa, absolute(os.path.join(work, f"taxa_{rep}.tsv"))
+            treat_ages(src, taxa, r["AGES"], f"{r['SEED']}:{rep}:{draw}")
+            treated = [f'TAXA <- "{taxa}"']
         # seeded, so the same replicate fitted twice gives the same chain. Each replicate has
-        # its own seed, or their Monte Carlo errors would move together.
-        head = [f"seed({int(r['SEED']) + rep})",
+        # its own seed, or their Monte Carlo errors would move together, and so has each draw.
+        head = [f"seed({int(r['SEED']) + rep + 1000003 * (draw - 1)})",
                 f'rep <- "{rep}"', f'ORIGIN_PRIOR <- "{r["ORIGIN_PRIOR"]}"',
-                f"MAXFA <- {max_first_appearance(os.path.join(batch, specimens, f'taxa_{rep}.tsv'))}",
+                f"MAXFA <- {max_first_appearance(taxa)}",
                 f"SKYLINE <- {sky}", f"COMPLETE <- {complete}", f'COND <- "{r["COND"]}"',
                 f"RHO <- {r['RHO']}", f"GENS <- {r['GENS']}", f"PRINTGEN <- {r['PRINTGEN']}",
                 f'BATCHDIR <- "{absolute(batch)}"', f'SPECIMENS <- "{specimens}"',
-                f'OUTDIR <- "{absolute(out)}"']
+                f'OUTDIR <- "{absolute(to)}"']
         head += [f"{k} <- {v[k]}" for k in HEAD]
         head += [f"SURVIVORS <- {r['SURVIVORS']}", f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}"]
         head += [f"{k} <- {v[k]}" for k in ("GMRF_SD", "GMRF_SD_MEAN", "GMRF_SD_SD", "GMRF_PSI_MEAN", "GMRF_PSI_SD")]
-        head += [f'BINDIR <- "{tools.SCRIPTS}"']
+        head += [f'BINDIR <- "{tools.SCRIPTS}"'] + treated
         head += [f"{k} <- {v[k]}" for k in TAIL]
         head += [f'source("{template}")']
-        rev = os.path.join(aux, f"run_{rep}.Rev")
+        rev = os.path.join(work, f"run_{rep}.Rev")
         with open(rev, "w") as fh:
             fh.write("\n".join(head) + "\n")
         # slots cap chains across every fit sharing the directory, so concurrent runs fill the
@@ -163,20 +235,31 @@ def fit(run, force=False, slots=None, slot_dir=None):
             if held is None:
                 time.sleep(10)
         try:
-            with open(os.path.join(aux, f"rb_{rep}.out"), "w") as so:
+            with open(os.path.join(work, f"rb_{rep}.out"), "w") as so:
                 subprocess.run([rb, absolute(rev)], stdin=subprocess.DEVNULL, stdout=so,
                                stderr=subprocess.STDOUT, env=env)
         finally:
             if held is not None:
                 held.close()
-        if not os.path.exists(log) or lines_in(log) != full:
-            why = "no log written"
-            for line in open(os.path.join(aux, f"rb_{rep}.out"), errors="replace"):
-                if "error" in line.lower():
-                    why = line.strip()
-                    break
-            with open(failures, "a") as fh:
-                fh.write(f"{rep} :: {why}\n")
+        if os.path.exists(log) and lines_in(log) == full:
+            return True
+        why = "no log written"
+        for line in open(os.path.join(work, f"rb_{rep}.out"), errors="replace"):
+            if "error" in line.lower():
+                why = line.strip()
+                break
+        with open(failures, "a") as fh:
+            fh.write(f"{rep} :: {why}" + (f" (draw {draw})" if draws > 1 else "") + "\n")
+        return False
+
+    def one(rep):
+        log = os.path.join(out, f"rep_{rep}.log")
+        if os.path.exists(log) and lines_in(log) == full:
+            return
+        done = [chain(rep, k) for k in range(1, draws + 1)]
+        if draws > 1 and all(done):
+            pool_draws([os.path.join(aux, f"draw_{k}", f"rep_{rep}.log")
+                        for k in range(1, draws + 1)], log)
 
     with ThreadPoolExecutor(max_workers=max(1, int(r["NCORES"]))) as pool:
         list(pool.map(one, range(1, n + 1)))

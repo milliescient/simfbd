@@ -243,6 +243,33 @@ measured rather than assumed.
 
 Matching them is validation; mismatching them is a misspecification analysis.
 
+## Dating resolution
+
+A batch can report its record on other occurrence grids beside its own, so that fits differing
+only in how finely the fossils are dated are paired on the same fossils:
+
+```yaml
+record:
+  occurrence_bins:
+    width: 1.5
+    oldest_edge: 36
+    also_widths: [0, 0.75, 3, 6]     # 0 is the exact ages
+    also_offsets: [0, 0.25]          # fractions of a bin
+```
+
+Each width at each offset is written as `specimens_<model>_w<width>`, with `_o<offset>` when
+the offset is not 0, and a run reads one with `record_read: complete_w3_o0.25`. These grids
+stop at the present and at `origin_age.max`, so an offset grid has no bin past the origin
+prior. The batch's own grid is written as it always was.
+
+How a fit treats the ages it reads is the run's choice, `inference.occurrence_ages`:
+`reported` hands rb the bins, `midpoint` puts each occurrence at its bin's middle, and `drawn`
+at a uniform draw within it. `inference.age_draws: 10` makes ten such draws of each replicate
+and fits a chain to each, which is PyRate's practice, and pools them: `output/rep_<n>.log` is
+then the length of one chain, and after burn-in takes each sample from the next draw in turn,
+so each draw counts the same. The chains themselves are under `aux/draw_<k>/`. A midpoint
+fit is refused where a midpoint is a rate-shift time, since rb cannot start there.
+
 ## Why the parameters are tracked this way
 
 The hyperpriors have to reach two places: the simulator that draws the true values, and
