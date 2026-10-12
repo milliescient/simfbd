@@ -640,8 +640,23 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
   # run until we fulfill conditions
   while (!cond) {
     if (BACKWARD) {
-      # the extant count fixes the tree size, so the expected-lineage ceiling has nothing to
-      # refuse and tMax does not exist yet to measure it against
+      # The extant count fixes the standing diversity, not the total: leaving N_EXTANT
+      # survivors costs about N_EXTANT / (1 - mu/lambda) species, which diverges as turnover
+      # approaches 1 and is unreachable above it, where the process declines. Refuse those
+      # before simulating, as the forward path refuses its own runaways. This truncates the
+      # prior, so the count belongs in the batch record.
+      if (sbc && is.finite(MAX_LINEAGES)) {
+        total_species <- function() {
+          r <- mean(mu) / mean(lambda)
+          if (r >= 1) return(Inf)
+          N_EXTANT / (1 - r)
+        }
+        while (total_species() > MAX_LINEAGES) {
+          sim_filtered <<- sim_filtered + 1
+          redraw()
+        }
+      }
+
       bw <- backward_sim(N_EXTANT, lambda, mu, psi, cov_breaks, bins)
       sim <- bw$SIM
       fossils <- bw$FOSSILS
