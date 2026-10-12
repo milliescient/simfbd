@@ -22,23 +22,37 @@ if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
 # rate and lower truncation both the oldest observed first appearance, no upper bound.
 # Truncating an exponential below at m and shifting it to m are the same thing, so the
 # offset argument gives PyRate's prior exactly.
-if (ORIGIN_PRIOR == "exponential") {
-    origin ~ dnExponential(1/MAXFA, offset=MAXFA)
-} else {
-    origin ~ dnUniform(AGE_MIN, AGE_MAX)
+# "none" supplies no origin, leaving the oldest birth as the process start under an improper
+# flat prior, which is the parameterization before the origin node existed.
+if (ORIGIN_PRIOR != "none") {
+    if (ORIGIN_PRIOR == "exponential") {
+        origin ~ dnExponential(1/MAXFA, offset=MAXFA)
+    } else {
+        origin ~ dnUniform(AGE_MIN, AGE_MAX)
+    }
+    # The oldest birth is welded to this node, so the record's oldest occurrence bounds it from
+    # below. AGE_MAX is above every occurrence, so starting there is always feasible.
+    origin.setValue(AGE_MAX)
+    moves.append( mvSlide(origin, delta=0.5, weight=2) )
+    moves.append( mvSlide(origin, delta=2.0, weight=2) )
 }
-# The oldest birth is welded to this node, so the record's oldest occurrence bounds it from
-# below. AGE_MAX is above every occurrence, so starting there is always feasible.
-origin.setValue(AGE_MAX)
-moves.append( mvSlide(origin, delta=0.5, weight=2) )
-moves.append( mvSlide(origin, delta=2.0, weight=2) )
 
-if (SKYLINE) {
-    bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 timeline=timeline, condition=COND, origin=origin, survivors=SURVIVORS)
+if (ORIGIN_PRIOR == "none") {
+    if (SKYLINE) {
+        bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
+                 timeline=timeline, condition=COND, survivors=SURVIVORS)
+    } else {
+        bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
+                 condition=COND, survivors=SURVIVORS)
+    }
 } else {
-    bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
+    if (SKYLINE) {
+        bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
+                 timeline=timeline, condition=COND, origin=origin, survivors=SURVIVORS)
+    } else {
+        bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
                  condition=COND, origin=origin, survivors=SURVIVORS)
+    }
 }
 
 # the reporting model is its own node now, clamped to the observed record

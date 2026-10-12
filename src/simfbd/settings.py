@@ -119,4 +119,5 @@ RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN"
 
 # a setting that takes one of a few words
 CHOICES = {"MODEL": ("fbdr", "bds", "fbdsp"), "INFER": ("complete", "incomplete"),
-           "TAXA_COUNT": ("fossil", "record")}
+           "TAXA_COUNT": ("fossil", "record"),
+           "ORIGIN_PRIOR": ("uniform", "exponential", "none")}

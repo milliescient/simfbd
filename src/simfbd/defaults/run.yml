@@ -11,7 +11,9 @@ inference:
   record_treated_as:            # required. complete or incomplete
   conditioned_on:               # required
   extant_sampling_probability:  # required
-  origin_prior: uniform
+  origin_prior: uniform      # uniform | exponential | none. none supplies no origin at all, so
+                             # the oldest birth is the process start under an improper flat
+                             # prior and the matrix moves sample it
   survivors: true
   drop_present_only_taxa: false
 
