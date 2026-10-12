@@ -1,7 +1,7 @@
 """The simfbd command.
 
     simfbd extend <batch> <n>          add n replicates to a batch, or give a new one its first
-    simfbd fit <batch>/runs/<name>     fit every replicate of the batch not yet fitted
+    simfbd fit <batch>/runs/<name>     analyze every replicate of the batch not yet analyzed
     simfbd status <batch or run> ...   does it still match its manifest
     simfbd summarize <run> ...         SBC ranks, coverage and diagnostics for a run
     simfbd ranks <run>                 mean rank per parameter
@@ -16,7 +16,7 @@
 
 A batch is a directory holding a config.yml, anywhere on disk, and a run is a directory
 under its runs/ holding one too. A batch made before configs were YAML holds a config.sh
-instead. It can still be fitted, summarised and checked, by the shell driver it was made
+instead. It can still be analyzed, summarised and checked, by the shell driver it was made
 with, which simfbd carries for that and for nothing else.
 """
 import argparse
@@ -96,7 +96,7 @@ def cmd_doctor(a):
     print(f"           rb was built from {describe}")
     builds = tools.rb_builds()
     if len(builds) > 1:
-        print("           a run can be fitted by any of these, by stating it under uses in its config:")
+        print("           a run can be analyzed with any of these, by stating it under uses in its config:")
         for path, commit in builds:
             print(f"             rb@{commit}  {path}")
     r = subprocess.run([tools.rscript(), "-e",
@@ -120,10 +120,10 @@ def main(argv=None):
     p.add_argument("n", type=int)
     p.add_argument("--allow-sim-change", action="store_true",
                    help="add to a batch whose earlier replicates a different simulator made")
-    p = sub.add_parser("fit", help="fit a run")
+    p = sub.add_parser("fit", help="analyze a run")
     p.add_argument("run")
-    p.add_argument("--force", action="store_true", help="fit although a config has changed since the output was written")
-    p.add_argument("--slots", type=int, help="cap chains across every fit sharing --slot-dir")
+    p.add_argument("--force", action="store_true", help="go on although a config has changed since the output was written")
+    p.add_argument("--slots", type=int, help="cap chains across every run sharing --slot-dir")
     p.add_argument("--slot-dir")
     p = sub.add_parser("status", help="does a batch or a run still match its manifest")
     p.add_argument("paths", nargs="+")

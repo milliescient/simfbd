@@ -136,7 +136,7 @@ def flat(d):
             for line in fh:
                 if "\t" in line:
                     k, v = line.rstrip("\n").split("\t", 1)
-                    out[k] = v              # a run repeats RHO; the later line is the fitted one
+                    out[k] = v              # a run repeats RHO; the later line is the analysis's
         # a manifest.tsv says screened where everything since says filtered
         for k in [k for k in out if k.startswith("screened")]:
             out.setdefault(k.replace("screened", "filtered"), out[k])
@@ -291,7 +291,7 @@ def write_run(d, f, value_of=None):
         raise SystemExit(f"manifest.py: {f['batch_dir']} has no manifest.yml")
     sim = flat(f["batch_dir"])
     lines = [
-        "# Written by simfbd: the record of what was fitted from config.yml. Do not edit it.",
+        "# Written by simfbd: the record of what was analyzed from config.yml. Do not edit it.",
         "kind: run",
         f"run: {text(os.path.basename(os.path.normpath(d)))}",
         f"batch: {text(batch['batch'])}",
@@ -329,7 +329,7 @@ def write_run(d, f, value_of=None):
         f"  rb_describe: {text(f['rb_commit'])}",
     ]
     if value_of is not None:
-        lines += ["", "# ---- the fit, from this run's config.sh ----"]
+        lines += ["", "# ---- the analysis, from this run's config.sh ----"]
         lines += settings_lines(RUN_SETTINGS, value_of)
         lines += ["", f"# ---- the generating process, copied from {batch_path} ----",
                   "simulation:"]
@@ -415,7 +415,7 @@ def status(d):
             for name, got in (read or {}).items():
                 if name in wrote and wrote[name] != got:
                     row("stale", "batch: " + name,
-                        f"the batch has changed since this run was fitted "
+                        f"the batch has changed since this run was analyzed "
                         f"({doc.get('replicates')} -> {batch.get('replicates')} replicates)")
     else:
         if last.get("outputs"):

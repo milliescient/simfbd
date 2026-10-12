@@ -52,7 +52,7 @@ if (SKYLINE) {
         #
         # The level of each path and the stationary sds are drawn per replicate by the
         # simulator, so they are estimated here from the same hyperpriors. The ranks are
-        # non-uniform by construction if the fitted prior is not the generating one.
+        # non-uniform by construction if the analysis's prior is not the generating one.
         #
         # phi is fixed on purpose. An AR(1) with lag-1 correlation phi on intervals of width
         # dt is an OU process with mean reversion -log(phi)/dt, so estimating it on eight
@@ -125,7 +125,7 @@ if (SKYLINE) {
         # The walk width is either fixed by the batch or, in the hierarchical variant,
         # drawn per replicate from the same lognormal the simulator used. It has to be
         # estimated here for the same reason the walk itself is: the ranks are
-        # non-uniform by construction if the fitted prior is not the generating one.
+        # non-uniform by construction if the analysis's prior is not the generating one.
         if (GMRF_HIER) {
             gmrf_sd_rates ~ dnLognormal(GMRF_SD_MEAN, GMRF_SD_SD)
             gmrf_sd_psi ~ dnLognormal(GMRF_PSI_MEAN, GMRF_PSI_SD)

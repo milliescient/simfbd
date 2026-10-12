@@ -10,9 +10,9 @@
 # all reporting models from one record, so the analyses under it share a timeline and
 # one true_vals.tsv and their comparisons are paired.
 #
-# An analysis under runs/ chooses only what to read and how to fit it. It inherits the
+# An analysis under runs/ chooses only what to read and how to analyze it. It inherits the
 # batch's hyperpriors and may not redeclare them, and bin/run.sh feeds the same values
-# to bin/sim.R and to bin/infer.Rev, so the generating and fitting priors cannot drift.
+# to bin/sim.R and to bin/infer.Rev, so the generating priors and the analysis's cannot drift.
 #
 # Both levels write a manifest.yml recording the resolved parameters, the config hash,
 # the script hashes and the rb identity, and a run records the batch hash it ran against.
@@ -168,7 +168,7 @@ fi
 
 [ -n "$RUNDIR" ] || { echo "batch ready: $BATCHDIR"; exit 0; }
 
-# ---- analysis config: what to read and how to fit it ----
+# ---- analysis config: what to read and how to analyze it ----
 [ -f "$RUNDIR/config.sh" ] || die "no $RUNDIR/config.sh"
 for k in $PRIOR_KEYS; do
   grep -Eq "^[[:space:]]*$k=" "$RUNDIR/config.sh" \
@@ -180,11 +180,11 @@ for k in MAX_LINEAGES SIM_TIMEOUT SIM_MAX_DRAWS NREPS; do
 done
 set -a; source "$RUNDIR/config.sh"; set +a
 ORIGIN_PRIOR="${ORIGIN_PRIOR:-uniform}"
-# rho is the generating parameter and the fitted one. A batch that sets it wins, and a run
-# that disagrees is refused rather than silently fitting a rho the data was not drawn under.
+# rho is the generating parameter and the one the analysis assumes. A batch that sets it wins, and a run
+# that disagrees is refused rather than silently assuming a rho the data was not drawn under.
 # compared as numbers, so 0 and 0.0 are not a disagreement
 if [ -n "$BATCH_RHO" ] && ! awk -v a="$RHO" -v b="$BATCH_RHO" 'BEGIN{exit !(a+0==b+0)}'; then
-  die "$RUNDIR/config.sh fits RHO=$RHO but $BATCHDIR generated under RHO=$BATCH_RHO."
+  die "$RUNDIR/config.sh assumes RHO=$RHO but $BATCHDIR generated under RHO=$BATCH_RHO."
 fi
 SURVIVORS="${SURVIVORS:-true}"
 # dnBDS only: leave out taxa seen only alive at the present, which PyRate's input never holds
@@ -346,7 +346,7 @@ else
   printf 'created\t%s\n' "$(date -Is)"
   printf 'specimens\t%s\n' "$SPECIMENS"
   for k in MODEL REPORTING INFER COND RHO GENS PRINTGEN ORIGIN_PRIOR; do printf '%s\t%s\n' "$k" "${!k}"; done
-  # the inherited hyperpriors, so a run manifest describes its own fit without the batch
+  # the inherited hyperpriors, so a run manifest describes its own analysis without the batch
   for k in $PRIOR_KEYS; do printf '%s\t%s\n' "$k" "${!k}"; done
   for k in $OPT_KEYS; do printf '%s\t%s\n' "$k" "${!k:-none}"; done
 } > "$RUN_MANIFEST"

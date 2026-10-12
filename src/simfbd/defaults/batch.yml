@@ -58,7 +58,7 @@ rates_through_time:
       log_sd: 0
 
 record:
-  extant_sampling_probability:     # unset, every lineage alive at the present is seen, and a run may fit any value
+  extant_sampling_probability:     # unset, every lineage alive at the present is seen, and a run may assume any value
   interior_reporting: 1            # below 1, interior occurrences are thinned at a rate drawn per replicate from Uniform(0, 1)
   occurrence_bins:
     width:                         # required. occurrence ages are reported to these bins

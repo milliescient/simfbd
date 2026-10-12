@@ -3,7 +3,7 @@
 # per-taxon latents (b, d, tau1).
 #
 # Adapted from skyfbdr_SBC.Rmd (David Cerny) for SBC 0.5 and this repo's layout:
-#  - default_diagnostics / messages / warnings must be per-fit, not empty/NULL
+#  - default_diagnostics / messages / warnings must be one per replicate, not empty/NULL
 #  - thin_ranks = 1 (there are ~750 retained draws per rep; adaptive thinning wants more)
 #  - true values are aligned to the reps that actually produced a complete log
 #
@@ -26,7 +26,7 @@
 # usage:  Rscript bin/summarize.R sims/<batch>/runs/<name> ...
 #
 # Every path and hyperparameter comes from the run's manifest, so the scoring uses the
-# same values the fit used.
+# same values the analysis used.
 
 suppressMessages({
   library(SBC)
@@ -39,7 +39,7 @@ latent_order <- c("d", "tau1", "b")   # youngest to oldest
 
 # Nothing here is inferred from a directory name. bin/run.sh writes the manifest when it
 # runs the analysis, recording the batch, the reporting model and every hyperprior it fed
-# to rb, so the scoring reads the same values the fit used and cannot be pointed at the
+# to rb, so the scoring reads the same values the analysis used and cannot be pointed at the
 # wrong truth.
 # A manifest is read through bin/manifest.py, which answers by config key for a manifest.yml
 # and for the manifest.tsv of an older batch alike. It is found beside this script, so a batch

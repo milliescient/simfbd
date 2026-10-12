@@ -103,7 +103,7 @@ RUN_SETTINGS = [
     ("GENS", "mcmc.generations", ""),
     ("PRINTGEN", "mcmc.sample_every", ""),
     ("SEED", "mcmc.seed", "each replicate's chain is seeded with this plus its number"),
-    ("NCORES", "mcmc.chains_at_once", "replicates fitted in parallel"),
+    ("NCORES", "mcmc.chains_at_once", "replicates analyzed in parallel"),
 ]
 
 # what a manifest records beyond settings: the name a script asks for, and where it sits
@@ -125,7 +125,7 @@ RUN_RECORD = {
 }
 
 
-# what a batch cannot be simulated without, and a run cannot be fitted without
+# what a batch cannot be simulated without, and a run cannot be analyzed without
 BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD",
                   "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "LAMBDA_A", "ORIGIN_SAMPLED"]
 RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN", "NCORES"]

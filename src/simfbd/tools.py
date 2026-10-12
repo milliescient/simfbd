@@ -12,8 +12,8 @@ So a machine says once where its builds are, and a single run can still be point
 another without editing anything.
 
 A machine can list several builds of rb, and each is known by the commit its binary carries.
-Which of them fits a run is choose_rb()'s to say: the one the run's config states, else the
-one that fitted the run's earlier replicates, else the first listed.
+Which of them analyzes a run is choose_rb()'s to say: the one the run's config states, else the
+one that analyzed the run's earlier replicates, else the first listed.
 """
 import os
 import shutil
@@ -87,10 +87,10 @@ _chosen = None
 
 
 def choose_rb(stated=None, recorded=None, config="", run="", force=False):
-    """Settle which build of rb fits a run.
+    """Settle which build of rb analyzes a run.
 
     The version its config states under `uses` wins, and is refused when no build here is
-    that one. Otherwise the build that fitted the run's earlier replicates, so one run's logs
+    that one. Otherwise the build that analyzed the run's earlier replicates, so one run's logs
     all come from one rb; when that build is gone it is refused, unless forced. Otherwise the
     first listed. $RBIN overrides all of it for one command, and require() still holds it to
     what the config states.
@@ -100,7 +100,7 @@ def choose_rb(stated=None, recorded=None, config="", run="", force=False):
     if os.environ.get("RBIN"):
         return
     for want, why in ((stated, f"{config} states rb@{stated}"),
-                      (recorded, f"rb@{recorded} fitted the earlier replicates of {run}")):
+                      (recorded, f"rb@{recorded} analyzed the earlier replicates of {run}")):
         if not want or want == "unknown":
             continue
         builds = rb_builds()
@@ -115,7 +115,7 @@ def choose_rb(stated=None, recorded=None, config="", run="", force=False):
         if not force:
             raise SystemExit(f"error: {why}, and no build of rb here is that one. "
                              f"This machine has\n{have}\n"
-                             f"       Fitting the rest with another would mix two builds in one run. "
+                             f"       Analyzing the rest with another would mix two builds in one run. "
                              f"List the build in {TOOLS_FILE},\n       or pass --force to use the first listed.")
 
 
@@ -182,7 +182,7 @@ def which(program):
     return shutil.which(program) or program
 
 
-# what a batch is simulated with, and what a run is fitted with
+# what a batch is simulated with, and what a run is analyzed with
 SIMULATES = ("simfbd", "R", "paleobuddy")
 FITS = ("simfbd", "rb")
 KNOWN = ("simfbd", "rb", "R", "paleobuddy")

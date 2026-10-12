@@ -1,7 +1,7 @@
 """Simulate a batch's replicates: its first, or more beside the ones it has.
 
 A batch owns the generating process and every hyperprior. One simulation pass emits all the
-reporting models from one record, so the fits under it share a timeline and one
+reporting models from one record, so the runs under it share a timeline and one
 true_vals.tsv, and their comparisons are paired.
 
 Replicates are only ever added. The ones a batch holds are never touched: an extension

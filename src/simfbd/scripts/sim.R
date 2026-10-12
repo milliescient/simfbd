@@ -136,7 +136,7 @@ cfg_list <- function(k) {
   v <- Sys.getenv(k)
   if (v == "") numeric(0) else as.numeric(strsplit(v, ",")[[1]])
 }
-# The same record reported to other grids as well, every width at every offset, so fits that
+# The same record reported to other grids as well, every width at every offset, so analyses that
 # differ only in dating resolution are paired on one set of fossils. Width 0 is the exact ages.
 # An offset is a fraction of the width: 0.5 moves a grid's edges by half a bin.
 BIN_WIDTHS <- cfg_list("BIN_WIDTHS")

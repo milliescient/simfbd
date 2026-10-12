@@ -30,32 +30,32 @@ uses: [rb@28e5b2]                 # in a run's config: any of simfbd, rb
 uses: [paleobuddy@1.1.0, R@4.5.3] # in a batch's: any of simfbd, R, paleobuddy
 ```
 
-### Which rb fits a run
+### Which rb analyzes a run
 
 A machine can hold several builds of rb, and each is known by the commit its binary carries,
 which `simfbd doctor` lists. `simfbd fit` picks one for the run, by the first of these that
 applies:
 
-1. the version the run's config states under `uses`. If no build here is that one, the fit is
+1. the version the run's config states under `uses`. If no build here is that one, the run is
    refused and the builds that are here are listed.
-2. the build that fitted the run's earlier replicates, read from its manifest, so a run that
+2. the build that analyzed the run's earlier replicates, read from its manifest, so a run that
    is topped up after its batch is extended keeps one rb throughout. If that build is gone the
-   fit is refused; `--force` goes on with the default and the manifest then names the new one.
+   run is refused; `--force` goes on with the default and the manifest then names the new one.
 3. the first build the tools file lists, else `rb` on `PATH`.
 
 `$RBIN` overrides all three for one command, and is still held to what the config states.
 
-So which rb fits a run is simfbd's to settle, not a notebook's. A notebook's own check of rb
+So which rb analyzes a run is simfbd's to settle, not a notebook's. A notebook's own check of rb
 sees the one its scripts get by calling `rb`, which need not be the one simfbd picks. The run's
 manifest says which it was, as `uses: ["simfbd@...", "rb@..."]`, and a notebook can show that.
 
 ## Layout
 
 A **batch** owns the generating process and every hyperprior. One simulation pass emits
-all reporting models from one record, so the fits under it share a timeline and one
+all reporting models from one record, so the runs under it share a timeline and one
 `true_vals.tsv`, and comparisons between them are paired on identical truth.
 
-A **run** under a batch's `runs/` chooses only what to read and how to fit it. It inherits
+A **run** under a batch's `runs/` chooses only what to read and how to analyze it. It inherits
 the batch's hyperpriors and has no way to set them.
 
 ```
@@ -65,7 +65,7 @@ a-batch/
   specimens_complete/  specimens_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
-    config.yml       which record to read, and how to fit it
+    config.yml       which record to read, and how to analyze it
     manifest.yml     + what it read and wrote, and which code and which rb ran
     output/  aux/  results/
 ```
@@ -80,7 +80,7 @@ src/simfbd/          the package
   settings.py        every setting: the name it is written under and what it means
   defaults/          batch.yml and run.yml: every setting, with the value it takes when left out
   config.py          reads and checks a config.yml
-  batch.py  fit.py   simulate replicates, fit a run
+  batch.py  fit.py   simulate replicates, analyze a run
   manifest.py        writes, reads and checks a manifest.yml
   ranks.py           mean rank per parameter
   scripts/           what simfbd runs or carries: the simulator sim.R, the Rev templates,
@@ -94,7 +94,7 @@ What it carries is only what it runs. Analyses of particular batches are in the 
 
 ```sh
 simfbd extend sims/batch1 200                # simulate the batch's first 200 replicates
-simfbd fit sims/batch1/runs/fbdrp_firstlast  # fit every replicate not yet fitted
+simfbd fit sims/batch1/runs/fbdrp_firstlast  # analyze every replicate not yet analyzed
 simfbd summarize sims/batch1/runs/fbdrp_firstlast
 simfbd extend sims/batch1 800                # later: 800 more, and the batch has 1000
 simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
@@ -183,7 +183,7 @@ page that pins one of these paths, a config included, records the same value.
 
 `simfbd status` recomputes the hashes and reports each path as `current`, `changed` or
 `missing`. For a run it also checks the edge: what the run read must be what the batch says
-it wrote, and a run fitted before its batch was extended is reported `stale`. It exits
+it wrote, and a run analyzed before its batch was extended is reported `stale`. It exits
 non-zero if anything is changed, missing or stale. A script of simfbd's own that has changed
 since is reported as `differs` and not counted, since the commit under `uses` already names
 what ran.
@@ -223,7 +223,7 @@ the most any finished simulation used.
 
 The first ceiling is the one filter that costs something. It is applied by refusing the draw
 before it is simulated, so it is a function of theta alone: it truncates the prior the
-simulator draws from while the fit keeps the untruncated one, and the SBC ranks are
+simulator draws from while the analysis keeps the untruncated one, and the SBC ranks are
 non-uniform by exactly that much. A floor and ceiling on the number of reported taxa,
 `accepted_replicates`, is a function of the record and is free, because conditioning on a
 function of the record leaves the posterior given that record alone. Every batch records
@@ -237,7 +237,7 @@ measured rather than assumed.
 
 ## The two key axes
 
-- **`inference.record_read`** = `complete` | `firstlast`: which record the fit reads. All
+- **`inference.record_read`** = `complete` | `firstlast`: which record the analysis reads. All
   come from the same simulated history.
 - **`inference.record_treated_as`** = `complete` | `incomplete`: how the model treats it.
 
@@ -245,7 +245,7 @@ Matching them is validation; mismatching them is a misspecification analysis.
 
 ## Dating resolution
 
-A batch can report its record on other occurrence grids beside its own, so that fits differing
+A batch can report its record on other occurrence grids beside its own, so that analyses differing
 only in how finely the fossils are dated are paired on the same fossils:
 
 ```yaml
@@ -262,13 +262,13 @@ the offset is not 0, and a run reads one with `record_read: complete_w3_o0.25`. 
 stop at the present and at `origin_age.max`, so an offset grid has no bin past the origin
 prior. The batch's own grid is written as it always was.
 
-How a fit treats the ages it reads is the run's choice, `inference.occurrence_ages`:
+How an analysis treats the ages it reads is the run's choice, `inference.occurrence_ages`:
 `reported` hands rb the bins, `midpoint` puts each occurrence at its bin's middle, and `drawn`
 at a uniform draw within it. `inference.age_draws: 10` makes ten such draws of each replicate
-and fits a chain to each, which is PyRate's practice, and pools them: `output/rep_<n>.log` is
+and runs a chain on each, which is PyRate's practice, and pools them: `output/rep_<n>.log` is
 then the length of one chain, and after burn-in takes each sample from the next draw in turn,
 so each draw counts the same. The chains themselves are under `aux/draw_<k>/`. A midpoint
-fit is refused where a midpoint is a rate-shift time, since rb cannot start there.
+run is refused where a midpoint is a rate-shift time, since rb cannot start there.
 
 ## Why the parameters are tracked this way
 
@@ -304,13 +304,13 @@ reaches them and nothing a person writes or reads. A new setting gets a line the
 
 ## What is not reproducible
 
-A simulation reproduces: the same seeds give the same batch, byte for byte. A fit does too,
+A simulation reproduces: the same seeds give the same batch, byte for byte. An analysis does too,
 on one machine with one binary: each replicate's chain is seeded with `mcmc.seed` plus the
-replicate's number, so fitting it again gives the same log. Across machines or builds of rb a
+replicate's number, so running it again gives the same log. Across machines or builds of rb a
 chain may differ, and its summaries agree to within Monte Carlo error.
 
-A run under a batch made before configs were YAML is fitted by the shell driver, which sets no
-seed, so those fits differ from one time to the next.
+A run under a batch made before configs were YAML is analyzed by the shell driver, which sets no
+seed, so those analyses differ from one time to the next.
 
 ## Scope
 

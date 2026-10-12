@@ -1,12 +1,12 @@
-"""Fit a run: every replicate of its batch not yet fitted.
+"""Analyze a run: every replicate of its batch not yet analyzed.
 
-A run chooses only what to read and how to fit it. It inherits the batch's hyperpriors and
-has no way to set them, so the generating and the fitting priors cannot drift. Its manifest
+A run chooses only what to read and how to analyze it. It inherits the batch's hyperpriors and
+has no way to set them, so the generating priors and the analysis's cannot drift. Its manifest
 records the batch config it ran against, and a config edited after its output exists is
 refused rather than mixed.
 
 A replicate whose log is complete is skipped, so a rerun fills gaps, and a run under a batch
-that has been extended fits only the new replicates.
+that has been extended analyzes only the new replicates.
 """
 import fcntl
 import os
@@ -119,7 +119,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
     r = config.load(rcfg, "run")
     b.pop("_uses")
     stated = r.pop("_uses")
-    # which rb: the one the config states, else the one that fitted this run before
+    # which rb: the one the config states, else the one that analyzed this run before
     before = manifest.find(run)[1] or {}
     tools.choose_rb(stated=manifest.used(stated, "rb"),
                     recorded=manifest.used(before.get("uses"), "rb")
@@ -133,13 +133,13 @@ def fit(run, force=False, slots=None, slot_dir=None):
     simulated_from = manifest.flat(batch).get("config_hash")
     if simulated_from != bhash:
         die(f"{bcfg} changed since its replicates were simulated ({simulated_from} -> {bhash}).\n"
-            f"       Fitting them under it would describe data that was not drawn that way. Make a new batch.")
+            f"       Analyzing them under it would describe data that was not drawn that way. Make a new batch.")
     n = replicates(batch)
 
-    # rho is the generating parameter and the fitted one. A batch that sets it wins, and a run
-    # that disagrees is refused rather than silently fitting a rho the data was not drawn under.
+    # rho is the generating parameter and the one the analysis assumes. A batch that sets it wins, and a run
+    # that disagrees is refused rather than silently assuming a rho the data was not drawn under.
     if "RHO" in b and float(b["RHO"]) != float(r["RHO"]):
-        die(f"{rcfg} fits an extant sampling probability of {r['RHO']}, and {batch} was "
+        die(f"{rcfg} assumes an extant sampling probability of {r['RHO']}, and {batch} was "
             f"generated under {b['RHO']}.")
     template = tools.script(TEMPLATES[r["MODEL"]])
     complete = "true" if r["INFER"] == "complete" else "false"
@@ -202,7 +202,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
             src, taxa = taxa, absolute(os.path.join(work, f"taxa_{rep}.tsv"))
             treat_ages(src, taxa, r["AGES"], f"{r['SEED']}:{rep}:{draw}")
             treated = [f'TAXA <- "{taxa}"']
-        # seeded, so the same replicate fitted twice gives the same chain. Each replicate has
+        # seeded, so the same replicate analyzed twice gives the same chain. Each replicate has
         # its own seed, or their Monte Carlo errors would move together, and so has each draw.
         head = [f"seed({int(r['SEED']) + rep + 1000003 * (draw - 1)})",
                 f'rep <- "{rep}"', f'ORIGIN_PRIOR <- "{r["ORIGIN_PRIOR"]}"',
@@ -221,7 +221,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
         rev = os.path.join(work, f"run_{rep}.Rev")
         with open(rev, "w") as fh:
             fh.write("\n".join(head) + "\n")
-        # slots cap chains across every fit sharing the directory, so concurrent runs fill the
+        # slots cap chains across every run sharing the directory, so concurrent runs fill the
         # cores between them: each chain holds one slot lock for as long as rb runs
         held = None
         while slots and held is None:

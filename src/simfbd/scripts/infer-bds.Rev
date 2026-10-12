@@ -5,7 +5,7 @@
 ###
 ### Every prior hyperparameter arrives as a variable set by the per-rep aux file that
 ### bin/run.sh generates from the batch config.sh. Nothing is hardcoded here: the batch
-### that generated the data and the analysis that fits it read one definition, so they
+### that generated the data and the analysis of it read one definition, so they
 ### cannot drift apart.
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
