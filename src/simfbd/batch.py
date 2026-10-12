@@ -85,7 +85,8 @@ def extend(d, n, allow_sim_change=False):
             try:
                 same = float(v) == float(want.get(k, "nan"))
             except ValueError:
-                same = v == want.get(k)
+                # the simulator writes NA for a setting the config leaves out, so the two agree
+                same = v == want.get(k) or (v == "NA" and want.get(k) is None)
             if not same:
                 die(f"the simulator used {name_of.get(k, k)} = {v}, and the config says {want.get(k)}")
     print(f"  -> {os.path.join(d, 'manifest.yml')}")

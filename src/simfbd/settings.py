@@ -75,7 +75,8 @@ BATCH_SETTINGS = [
     ("MIN_FOSSIL_TAXA", "accepted_replicates.min_fossil_taxa", ""),
     ("N_EXTANT", "accepted_replicates.extant_species",
      "set, trees are drawn backward from exactly this many extant species and the origin is an "
-     "output, so origin_age is ignored"),
+     "output rather than a draw; origin_age then only states the expected origin, which the "
+     "stationary arm needs to size its oldest interval"),
 
     ("MAX_LINEAGES", "simulation_limits.max_lineages",
      "a draw expected to exceed this is refused unsimulated, which truncates the prior"),

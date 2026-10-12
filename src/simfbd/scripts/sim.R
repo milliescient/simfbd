@@ -469,8 +469,20 @@ backward_sim <- function(n_extant, lambda, mu, psi, breaks, bins) {
   extant <- TE < 1e-8
   sim <- list(TS = TS, TE = ifelse(extant, NA_real_, TE), PAR = PAR, EXTANT = extant)
 
+  # the grid must be monotone and reach past the tree whichever is deeper, the oldest break or
+  # the origin, or the last interval is malformed
+  top <- max(max(TS), if (length(breaks)) max(breaks) else 0) + 1
   fos <- FossilSim::sim.fossils.intervals(taxonomy = tx, rates = rev(psi),
-                                          interval.ages = c(0, breaks, max(TS) + 1))
+                                          interval.ages = c(0, breaks, top))
+  # an occurrence cannot predate the tree it was sampled on, and a non-finite age would be
+  # binned as the oldest edge with no upper one, which reads as NA downstream
+  if ( nrow(fos) > 0 && ( any(!is.finite(fos$hmin)) || max(fos$hmin) > max(TS) + 1e-8 ) ) {
+    stop(sprintf(paste("backward_sim: %d of %d occurrence ages are non-finite and %d exceed the",
+                       "origin %.4f (max %.4f); interval.ages top %.4f, species %d"),
+                 sum(!is.finite(fos$hmin)), nrow(fos),
+                 sum(fos$hmin > max(TS) + 1e-8, na.rm = TRUE), max(TS),
+                 suppressWarnings(max(fos$hmin[is.finite(fos$hmin)])), top, length(TS)))
+  }
   cols <- c("Species", "Extant", "SampT", "MaxT", "MinT")
   if (nrow(fos) == 0) {
     f <- setNames(data.frame(character(0), logical(0), numeric(0), numeric(0), numeric(0),
