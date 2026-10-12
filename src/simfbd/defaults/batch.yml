@@ -71,6 +71,7 @@ accepted_replicates:
   max_taxa:                        # no ceiling
   taxa_counted: fossil             # fossil: fossil-sampled taxa only; record: survivors seen at the present too
   min_fossil_taxa: 0
+  extant_species:                  # unset, trees run forward from a drawn origin_age
 
 simulation_limits:
   max_lineages:                    # no ceiling

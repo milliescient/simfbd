@@ -20,6 +20,8 @@ if (!exists("rexp.var") || !any(grepl("stepfun", deparse(body(rexp.var))))) {
 
 # ape
 library(ape)
+library(TreeSim)
+library(FossilSim)
 
 
 
@@ -271,6 +273,12 @@ if (!TAXA_COUNT %in% c("fossil", "record")) stop("TAXA_COUNT must be fossil or r
 # a floor on fossil-sampled taxa alone, for analyses that leave the present-only taxa out
 MIN_FOSSIL_TAXA <- as.integer(cfg_opt("MIN_FOSSIL_TAXA", 0))
 
+# Set, trees are drawn backward from exactly this many extant species and the origin is an
+# output, so AGE_MIN and AGE_MAX are ignored. Rejection on extant count cannot reach the
+# near-critical regime: at turnover 0.9 it needs over 480s a tree against 0.2s here.
+N_EXTANT <- suppressWarnings(as.integer(cfg_opt("N_EXTANT", NA)))
+BACKWARD <- !is.na(N_EXTANT)
+
 # Rate breakpoints (before the present) and fossil bins. Both are fixed rather than
 # derived from age: the analysis estimates the origin, so anything it reads that
 # scales with age hands it the answer. paleobuddy counts shift times forward from
@@ -430,6 +438,54 @@ bd_sim_bounded <- function(n0, lambda, mu, tMax, lShifts, mShifts, nFinal) {
   sim
 }
 
+# TreeSim draws the tree backward from a fixed number of extant species, so the origin is an
+# output rather than a draw. FossilSim then assigns budding species identity to the complete
+# tree: beta = 0 is budding, lambda.a = 0 no anagenesis. Both packages index rates
+# youngest-first, and the pipeline carries them oldest-first, so both arguments reverse.
+backward_sim <- function(n_extant, lambda, mu, psi, breaks, bins) {
+  tr <- TreeSim::sim.rateshift.taxa(n = n_extant, numbsim = 1,
+                                    lambda = rev(lambda), mu = rev(mu),
+                                    frac = rep(1, length(lambda)),
+                                    times = c(0, breaks), complete = TRUE)[[1]]
+  tx <- FossilSim::sim.taxonomy(tr, beta = 0, lambda.a = 0)
+
+  sp  <- sort(unique(tx$sp))
+  TS  <- vapply(sp, function(s) max(tx$start[tx$sp == s]), 0)
+  TE  <- vapply(sp, function(s) min(tx$end[tx$sp == s]), 0)
+  par <- vapply(sp, function(s) tx$parent[tx$sp == s][1], 0)
+
+  # species 1 has to be the origin lineage: the ancestor walk in summarize.R stops there and
+  # the acceptance test asks whether it was sampled
+  ord <- order(TS, decreasing = TRUE)
+  idx <- integer(max(sp)); idx[sp[ord]] <- seq_along(ord)
+  TS <- TS[ord]; TE <- TE[ord]; par <- par[ord]
+
+  # the root's parent is 0, and R drops a zero index, so idx[par] would come back short and
+  # silently shift every parent after it
+  PAR <- rep(NA_integer_, length(par))
+  PAR[par != 0] <- idx[par[par != 0]]
+
+  # a tip at the present carries accumulated floating-point error, not an extinction
+  extant <- TE < 1e-8
+  sim <- list(TS = TS, TE = ifelse(extant, NA_real_, TE), PAR = PAR, EXTANT = extant)
+
+  fos <- FossilSim::sim.fossils.intervals(taxonomy = tx, rates = rev(psi),
+                                          interval.ages = c(0, breaks, max(TS) + 1))
+  cols <- c("Species", "Extant", "SampT", "MaxT", "MinT")
+  if (nrow(fos) == 0) {
+    f <- setNames(data.frame(character(0), logical(0), numeric(0), numeric(0), numeric(0),
+                             stringsAsFactors = FALSE), cols)
+    return(list(SIM = sim, FOSSILS = f, AGE = max(TS)))
+  }
+  k <- idx[fos$sp]
+  j <- findInterval(fos$hmin, bins)
+  f <- data.frame(Species = paste0("t", k), Extant = extant[k], SampT = fos$hmin,
+                  MaxT = bins[j + 1], MinT = bins[j], stringsAsFactors = FALSE)
+  # retain_occs reads the first row as the oldest occurrence and the last as the youngest
+  f <- f[order(k, -f$SampT), , drop = FALSE]
+  list(SIM = sim, FOSSILS = f, AGE = max(TS))
+}
+
 # Reporting models, by the sim's model number. An SBC rep emits both from one
 # simulated record, so they share a tree, a fossil set and a timeline.
 sbc_models <- c(complete = 1, firstlast = 2)
@@ -583,6 +639,16 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 
   # run until we fulfill conditions
   while (!cond) {
+    if (BACKWARD) {
+      # the extant count fixes the tree size, so the expected-lineage ceiling has nothing to
+      # refuse and tMax does not exist yet to measure it against
+      bw <- backward_sim(N_EXTANT, lambda, mu, psi, cov_breaks, bins)
+      sim <- bw$SIM
+      fossils <- bw$FOSSILS
+      # the origin is what the tree realized, and it is the truth written for it
+      age <- bw$AGE
+      tMax <- age
+    } else {
     # a draw whose expected tree exceeds the ceiling is refused before it is simulated
     if (sbc && is.finite(MAX_LINEAGES)) {
       while (expected_lineages(lambda, mu, tMax, lShifts) > MAX_LINEAGES) {
@@ -606,6 +672,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
                                              rShifts = if (length(psi) < 2) NULL else pShifts,
                                              bins = bins,
                                              returnAll = TRUE))
+    }
 
     # split species at anagenetic events before any of them is reported
     if (lambda_a > 0) {
