@@ -7,7 +7,7 @@
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
 ###   OCCURRENCES, BATCHDIR, OUTDIR, the GAMMA_ settings, AGE_MIN, AGE_MAX,
-###   ORIGIN_PRIOR, MAXFA, SURVIVORS
+###   ORIGIN_PRIOR, MAXFA
 
 # TAXA is set when the run treats the occurrence ages some other way than as reported
 if (!exists("TAXA")) TAXA <- BATCHDIR + "/" + OCCURRENCES + "/taxa_" + rep + ".tsv"
@@ -42,18 +42,18 @@ if (ORIGIN_PRIOR != "none") {
 if (ORIGIN_PRIOR == "none") {
     if (SKYLINE) {
         bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 timeline=timeline, condition=COND, survivors=SURVIVORS)
+                 timeline=timeline, condition=COND)
     } else {
         bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 condition=COND, survivors=SURVIVORS)
+                 condition=COND)
     }
 } else {
     if (SKYLINE) {
         bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 timeline=timeline, condition=COND, origin=origin, survivors=SURVIVORS)
+                 timeline=timeline, condition=COND, origin=origin)
     } else {
         bd ~ dnFBDRP(taxa=taxa, lambda=lambda, mu=mu, psi=psi, rho=RHO, present=PRESENT,
-                 condition=COND, origin=origin, survivors=SURVIVORS)
+                 condition=COND, origin=origin)
     }
 }
 
@@ -73,7 +73,7 @@ moves.append( mvMatrixElementSwap(bd, col=4, weight=taxa.size()/5) )
 
 # rho < 1 puts a point mass at the present on every taxon reported extinct, which the
 # continuous element moves cannot reach
-if (RHO < 1.0 && SURVIVORS) {
+if (RHO < 1.0) {
     moves.append( mvExtinctionRJSwitch(bd, weight=taxa.size()/5) )
 }
 

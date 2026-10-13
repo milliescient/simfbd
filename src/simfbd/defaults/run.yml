@@ -18,8 +18,6 @@ inference:
   origin_prior: uniform      # uniform | exponential | none. none supplies no origin at all, so
                              # the oldest birth is the process start under an improper flat
                              # prior and the matrix moves sample it
-  unsampled_survivors: true     # below an extant sampling probability of 1, sample which taxa
-                                # survive unseen to the present
   monitor_latents: true          # false writes the rates only, so there are no latent ranks
   drop_present_only_taxa: false # bds only
 

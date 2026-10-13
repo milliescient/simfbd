@@ -208,7 +208,7 @@ def analyze(run, force=False, jobs=1, slots=None, slot_dir=None):
                 f'BATCHDIR <- "{absolute(batch)}"', f'OCCURRENCES <- "{occurrences}"',
                 f'OUTDIR <- "{absolute(to)}"']
         head += [f"{k} <- {v[k]}" for k in PRIORS]
-        head += [f"SURVIVORS <- {r['SURVIVORS']}", f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}",
+        head += [f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}",
                  f"LATENTS <- {r['LATENTS']}"]
         head += [f'BINDIR <- "{tools.SCRIPTS}"'] + treated
         head += [f'source("{template}")']

@@ -63,8 +63,6 @@ RUN_SETTINGS = [
     ("COND", "inference.condition", "what the process is conditioned on, as RevBayes names it"),
     ("RHO", "inference.extant_sampling_probability", ""),
     ("ORIGIN_PRIOR", "inference.origin_prior", ""),
-    ("SURVIVORS", "inference.unsampled_survivors",
-     "below an extant sampling probability of 1, sample which taxa survive unseen to the present"),
     ("LATENTS", "inference.monitor_latents",
      "false drops the per-taxon b, d, tau_1 and tau_K from the log, which a rates-only "
      "comparison never reads and which costs 63 MB a replicate on a thousand ranges"),
