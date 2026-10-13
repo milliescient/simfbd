@@ -53,7 +53,7 @@ read_manifest <- function(dir) {
 
 manifest_for <- function(run) {
   m <- read_manifest(run)
-  if (!length(m)) stop("no manifest in ", run, "; simfbd fit it first")
+  if (!length(m)) stop("no manifest in ", run, "; simfbd analyze it first")
   m
 }
 
@@ -102,11 +102,11 @@ check_alignment <- function(draws, true_vals, ni, ids) {
     kept <- apply(pm, 2, function(x) all(is.finite(x) & x > 0))
     cols <- cols[kept]; pm <- pm[, kept, drop = FALSE]
     tr <- log(true_vals[ids, cols, drop = FALSE])
-    fit <- mean(mapply(function(a, b) cor(log(pm[, a]), tr[[b]]), cols, cols))
+    own <- mean(mapply(function(a, b) cor(log(pm[, a]), tr[[b]]), cols, cols))
     mir <- mean(mapply(function(a, b) cor(log(pm[, a]), tr[[b]]), cols, rev(cols)))
-    if (mir > fit)
+    if (mir > own)
       cat(sprintf("   WARNING: %s truth looks mirrored (corr %.2f against %.2f reversed);",
-                  r, fit, mir), "check true_vals_order\n")
+                  r, own, mir), "check true_vals_order\n")
   }
 }
 

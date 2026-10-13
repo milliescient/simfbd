@@ -1,7 +1,7 @@
 """The simfbd command.
 
     simfbd extend <batch> <n>          add n replicates to a batch, or give a new one its first
-    simfbd fit <batch>/runs/<name>     analyze every replicate of the batch not yet analyzed
+    simfbd analyze <batch>/runs/<name> analyze every replicate of the batch not yet analyzed
     simfbd status <batch or run> ...   does it still match its manifest
     simfbd summarize <run> ...         SBC ranks, coverage and diagnostics for a run
     simfbd ranks <run>                 mean rank per parameter
@@ -21,7 +21,7 @@ import os
 import subprocess
 import sys
 
-from . import batch, config, fit, manifest, tools
+from . import analyze, batch, config, manifest, tools
 
 
 def cmd_extend(a):
@@ -31,9 +31,9 @@ def cmd_extend(a):
     batch.extend(d if os.path.isabs(a.batch) else a.batch, a.n, a.allow_sim_change)
 
 
-def cmd_fit(a):
+def cmd_analyze(a):
     run = a.run.rstrip("/")
-    if not fit.fit(run, force=a.force, jobs=a.jobs, slots=a.slots, slot_dir=a.slot_dir):
+    if not analyze.analyze(run, force=a.force, jobs=a.jobs, slots=a.slots, slot_dir=a.slot_dir):
         raise SystemExit(1)
 
 
@@ -89,7 +89,7 @@ def main(argv=None):
     p.add_argument("n", type=int)
     p.add_argument("--allow-sim-change", action="store_true",
                    help="add to a batch whose earlier replicates a different simulator made")
-    p = sub.add_parser("fit", help="analyze a run")
+    p = sub.add_parser("analyze", help="analyze a run")
     p.add_argument("run")
     p.add_argument("--force", action="store_true", help="go on although a config has changed since the output was written")
     p.add_argument("--jobs", type=int, default=1, help="replicates analyzed in parallel")
@@ -122,8 +122,8 @@ def main(argv=None):
         print(tools.home())
     elif a.cmd == "extend":
         cmd_extend(a)
-    elif a.cmd == "fit":
-        cmd_fit(a)
+    elif a.cmd == "analyze":
+        cmd_analyze(a)
     elif a.cmd == "status":
         cmd_status(a)
     elif a.cmd == "summarize":

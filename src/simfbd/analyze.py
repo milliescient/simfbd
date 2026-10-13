@@ -101,11 +101,11 @@ def pool_draws(logs, out):
         fh.writelines([header] + chains[0][:burn] + kept)
 
 
-def fit(run, force=False, jobs=1, slots=None, slot_dir=None):
+def analyze(run, force=False, jobs=1, slots=None, slot_dir=None):
     run = os.path.normpath(run)
     batch = os.path.dirname(os.path.dirname(run))
     if os.path.basename(os.path.dirname(run)) != "runs":
-        die("fit takes a run, <batch>/runs/<name>")
+        die("analyze takes a run, <batch>/runs/<name>")
     bcfg, rcfg = os.path.join(batch, "config.yml"), os.path.join(run, "config.yml")
     for f in (bcfg, rcfg):
         if not os.path.exists(f):

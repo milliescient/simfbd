@@ -50,7 +50,7 @@ def main(argv=None):
     # a chain still being written is not a posterior, so require the full sample count
     conf = manifest.flat(run)
     if "GENS" not in conf:
-        sys.exit(f"{run} has no manifest: run simfbd fit on it first")
+        sys.exit(f"{run} has no manifest: run simfbd analyze on it first")
     want = int(conf["GENS"]) // int(conf["PRINTGEN"]) + 1
 
     out = os.path.join(run, "output")

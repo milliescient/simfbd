@@ -18,7 +18,7 @@ rscript: /opt/R/bin/Rscript
 ```
 
 `simfbd doctor` says which this machine would use, which rule supplied each, and whether the R
-packages are there. Every `extend` and `fit` prints the same two lines before it starts, since
+packages are there. Every `extend` and `analyze` prints the same two lines before it starts, since
 a machine with no tools file quietly falls back to whatever is on `PATH`. `simfbd uses` prints
 what would run as `name@version`, and `simfbd uses rb` one version.
 
@@ -33,7 +33,7 @@ uses: [paleobuddy@1.1.0, R@4.5.3] # in a batch's: any of simfbd, R, paleobuddy
 ### Which rb analyzes a run
 
 A machine can hold several builds of rb, and each is known by the commit its binary carries,
-which `simfbd doctor` lists. `simfbd fit` picks one for the run, by the first of these that
+which `simfbd doctor` lists. `simfbd analyze` picks one for the run, by the first of these that
 applies:
 
 1. the version the run's config states under `uses`. If no build here is that one, the run is
@@ -80,11 +80,11 @@ src/simfbd/          the package
   settings.py        every setting: the name it is written under and what it means
   defaults/          batch.yml and run.yml: every setting, with the value it takes when left out
   config.py          reads and checks a config.yml
-  batch.py  fit.py   simulate replicates, analyze a run
+  batch.py  analyze.py  simulate replicates, analyze a run
   manifest.py        writes, reads and checks a manifest.yml
   ranks.py           mean rank per parameter
   scripts/           what simfbd runs or carries: the simulator sim.R, the Rev templates,
-                     summarize.R and pyrate.sh
+                     and summarize.R
 ```
 
 What it carries is only what it runs. Analyses of particular batches are in the notebook's
@@ -94,7 +94,7 @@ What it carries is only what it runs. Analyses of particular batches are in the 
 
 ```sh
 simfbd extend sims/batch1 200                # simulate the batch's first 200 replicates
-simfbd fit sims/batch1/runs/fbdrp_firstlast --jobs 6  # analyze every replicate not yet analyzed
+simfbd analyze sims/batch1/runs/fbdrp_firstlast --jobs 6  # analyze every replicate not yet analyzed
 simfbd summarize sims/batch1/runs/fbdrp_firstlast
 simfbd extend sims/batch1 800                # later: 800 more, and the batch has 1000
 simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
@@ -308,7 +308,7 @@ Neither script contains a prior of its own. Four rules keep it that way:
 - **An edited config is refused, not mixed.** Each manifest records the hash of the config
   that produced its data, and a run records the batch hash it ran against. Changing either
   after the fact stops the run instead of quietly mixing parameters across replicates.
-  `simfbd fit --force` overrides for a run.
+  `simfbd analyze --force` overrides for a run.
 
 A config and its manifest together make an output self-describing: the settings, the config
 hashes, the script hashes and the rb binary. `summarize.R` reads them rather than re-deriving
@@ -327,6 +327,6 @@ chain may differ, and its summaries agree to within Monte Carlo error.
 
 ## Scope
 
-`inference.model: fbdrp` and `bds` are wired. PyRate is not: `pyrate.sh` reads the same
-`taxon/min_age/max_age/status` occurrence format the simulator already writes, so reconnecting
-it needs no separate simulator. The previous TreeSim pipeline is in git history at 8563117.
+`inference.model: fbdrp` and `bds` are wired. PyRate itself is not run: `bds` under
+`condition: sampling` is its likelihood, and the script that ran the program on a batch is on
+the `all-priors` branch. The previous TreeSim pipeline is in git history at 8563117.
