@@ -125,9 +125,20 @@ cfg_opt <- function(k, default) {
 
 NINTERVALS    <- as.integer(cfg("NINTERVALS"))
 INTERVAL_WIDTH <- cfg("INTERVAL_WIDTH")
-LMEAN <- cfg("LMEAN"); LSD <- cfg("LSD")
-MMEAN <- cfg("MMEAN"); MSD <- cfg("MSD")
-PMEAN <- cfg("PMEAN"); PSD <- cfg("PSD")
+# PyRate's rate prior: an independent gamma draw per interval. A speciation or extinction
+# rate parameter left unset is PyRate's hyperprior, drawn per replicate and estimated.
+GAMMA_L_SHAPE <- cfg_opt("GAMMA_L_SHAPE", NA); GAMMA_L_RATE <- cfg_opt("GAMMA_L_RATE", NA)
+GAMMA_M_SHAPE <- cfg_opt("GAMMA_M_SHAPE", NA); GAMMA_M_RATE <- cfg_opt("GAMMA_M_RATE", NA)
+GAMMA_P_SHAPE <- cfg_opt("GAMMA_P_SHAPE", NA); GAMMA_P_RATE <- cfg_opt("GAMMA_P_RATE", NA)
+GAMMA_RATE_MAX <- cfg_opt("GAMMA_RATE_MAX", 20)
+GAMMA <- !is.na(GAMMA_L_SHAPE)
+if (GAMMA && anyNA(c(GAMMA_M_SHAPE, GAMMA_P_SHAPE, GAMMA_P_RATE)))
+  stop("GAMMA_L_SHAPE set without GAMMA_M_SHAPE, GAMMA_P_SHAPE and GAMMA_P_RATE")
+# the gammas replace the lognormals, so a gamma batch does not state them
+lognormal <- if (GAMMA) function(k) cfg_opt(k, NA) else cfg
+LMEAN <- lognormal("LMEAN"); LSD <- lognormal("LSD")
+MMEAN <- lognormal("MMEAN"); MSD <- lognormal("MSD")
+PMEAN <- lognormal("PMEAN"); PSD <- lognormal("PSD")
 AGE_MIN <- cfg("AGE_MIN"); AGE_MAX <- cfg("AGE_MAX")
 BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 
@@ -259,12 +270,15 @@ OU_PSI_SD   <- cfg_opt("OU_PSI_SD", 0)
 OU_HIER <- !is.na(OU_SD_MEAN)
 if (OU_HIER && is.na(OU_PSI_MEAN)) stop("OU_SD_MEAN set without OU_PSI_MEAN")
 if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_PHI_A/B or OU_THETA")
+if (GAMMA && OU) stop("the gamma prior is independent across intervals; unset OU_PHI_A/B and OU_THETA")
 GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
 GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
 GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
 GMRF_PSI_SD   <- cfg_opt("GMRF_PSI_SD", 0)
 GMRF_HIER <- !is.na(GMRF_SD_MEAN)
 if (GMRF_HIER && is.na(GMRF_PSI_MEAN)) stop("GMRF_SD_MEAN set without GMRF_PSI_MEAN")
+if (GAMMA && (GMRF_HIER || GMRF_SD > 0))
+  stop("the gamma prior is independent across intervals; unset GMRF_SD and GMRF_SD_MEAN")
 MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 # "record" makes MIN_TAXA and MAX_TAXA count every reported taxon, the survivors seen at the
 # present included; unset keeps the fossil-only count, so an older batch reproduces.
@@ -341,6 +355,9 @@ truth_of <- function(th, lambda, mu, psi, age) {
     if (OU_PHI_FREE) v <- c(v, phi_ref = th$phi_ref)
   } else if (GMRF_HIER) {
     v <- c(v, gmrf_sd_rates = th$sd_rates, gmrf_sd_psi = th$sd_psi)
+  } else if (GAMMA) {
+    if (is.na(GAMMA_L_RATE)) v <- c(v, gamma_rate_lambda = th$gamma_rate_lambda)
+    if (is.na(GAMMA_M_RATE)) v <- c(v, gamma_rate_mu = th$gamma_rate_mu)
   }
   v
 }
@@ -366,6 +383,17 @@ draw_theta <- function(lambda_a) {
                 m_lambda = m_lambda, m_turnover = m_turnover, m_psi = m_psi,
                 tau_rates = tau_rates, tau_psi = tau_psi, phi_ref = phi_ref,
                 lambda_a = if (lambda_a > 0) rlnorm(1, m_lambda, tau_rates) else lambda_a,
+                report_prob = if (REPORT_PROB < 1) runif(1) else 1))
+  }
+  if (GAMMA) {
+    b_lambda <- if (is.na(GAMMA_L_RATE)) runif(1, 0, GAMMA_RATE_MAX) else GAMMA_L_RATE
+    b_mu     <- if (is.na(GAMMA_M_RATE)) runif(1, 0, GAMMA_RATE_MAX) else GAMMA_M_RATE
+    return(list(age    = runif(1, AGE_MIN, AGE_MAX),
+                lambda = rgamma(NINTERVALS, GAMMA_L_SHAPE, rate = b_lambda),
+                mu     = rgamma(NINTERVALS, GAMMA_M_SHAPE, rate = b_mu),
+                psi    = rgamma(NINTERVALS, GAMMA_P_SHAPE, rate = GAMMA_P_RATE),
+                gamma_rate_lambda = b_lambda, gamma_rate_mu = b_mu,
+                lambda_a = if (lambda_a > 0) rgamma(1, GAMMA_L_SHAPE, rate = b_lambda) else lambda_a,
                 report_prob = if (REPORT_PROB < 1) runif(1) else 1))
   }
   sd_rates <- if (GMRF_HIER) rlnorm(1, GMRF_SD_MEAN, GMRF_SD_SD) else GMRF_SD
@@ -1176,6 +1204,12 @@ if (!exists("sim_functions_only")) {
       keys <- c(keys, "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD")
       vals <- c(vals, OU_SD_MEAN, OU_SD_SD, OU_PSI_MEAN, OU_PSI_SD)
     }
+  }
+  if (GAMMA) {
+    keys <- c(keys, "GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE",
+              "GAMMA_P_SHAPE", "GAMMA_P_RATE", "GAMMA_RATE_MAX")
+    vals <- c(vals, GAMMA_L_SHAPE, GAMMA_L_RATE, GAMMA_M_SHAPE, GAMMA_M_RATE,
+              GAMMA_P_SHAPE, GAMMA_P_RATE, GAMMA_RATE_MAX)
   }
   writeLines(sprintf("%s\t%s", keys, vals), paste0(reps_dir, "sim_params.tsv"))
   cat("done\n")

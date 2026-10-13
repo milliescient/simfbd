@@ -27,10 +27,13 @@ UNSET = {"GMRF_SD": "0", "GMRF_SD_MEAN": "-1", "GMRF_SD_SD": "0", "GMRF_PSI_MEAN
          "GMRF_PSI_SD": "0", "OU_THETA": "-1", "OU_DREF": "1.5", "OU_PHI_A": "-1", "OU_PHI_B": "-1",
          "TMEAN": "0", "TSD": "0.3", "LANCH": "0", "TANCH": "0", "PANCH": "0", "OU_SD_MEAN": "-1",
          "OU_SD_SD": "0", "OU_PSI_MEAN": "-1", "OU_PSI_SD": "0", "LAMBDA_A": "0", "PRESENT": "0",
-         "REPORT_PROB": "1"}
+         "REPORT_PROB": "1", "GAMMA_L_SHAPE": "-1", "GAMMA_L_RATE": "-1", "GAMMA_M_SHAPE": "-1",
+         "GAMMA_M_RATE": "-1", "GAMMA_P_SHAPE": "-1", "GAMMA_P_RATE": "-1", "GAMMA_RATE_MAX": "20"}
 HEAD = ["LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD", "AGE_MIN", "AGE_MAX"]
 TAIL = ["OU_THETA", "OU_DREF", "OU_PHI_A", "OU_PHI_B", "TMEAN", "TSD", "LANCH", "TANCH", "PANCH",
-        "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD", "LAMBDA_A", "PRESENT", "REPORT_PROB"]
+        "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD", "LAMBDA_A", "PRESENT", "REPORT_PROB",
+        "GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE", "GAMMA_P_SHAPE",
+        "GAMMA_P_RATE", "GAMMA_RATE_MAX"]
 
 
 def lines_in(path):
@@ -141,6 +144,8 @@ def fit(run, force=False, slots=None, slot_dir=None):
     if "RHO" in b and float(b["RHO"]) != float(r["RHO"]):
         die(f"{rcfg} assumes an extant sampling probability of {r['RHO']}, and {batch} was "
             f"generated under {b['RHO']}.")
+    if r["MODEL"] == "fbdsp" and "GAMMA_L_SHAPE" in b:
+        die(f"{batch} draws its rates from gammas, and the fbdsp template has only the lognormals.")
     template = tools.script(TEMPLATES[r["MODEL"]])
     complete = "true" if r["INFER"] == "complete" else "false"
     specimens = f"specimens_{r['REPORTING']}"
@@ -211,7 +216,8 @@ def fit(run, force=False, slots=None, slot_dir=None):
                 f"RHO <- {r['RHO']}", f"GENS <- {r['GENS']}", f"PRINTGEN <- {r['PRINTGEN']}",
                 f'BATCHDIR <- "{absolute(batch)}"', f'SPECIMENS <- "{specimens}"',
                 f'OUTDIR <- "{absolute(to)}"']
-        head += [f"{k} <- {v[k]}" for k in HEAD]
+        # a gamma batch has no lognormals to hand over
+        head += [f"{k} <- {v[k]}" for k in HEAD if k in v]
         head += [f"SURVIVORS <- {r['SURVIVORS']}", f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}",
                  f"LATENTS <- {r['LATENTS']}"]
         head += [f"{k} <- {v[k]}" for k in ("GMRF_SD", "GMRF_SD_MEAN", "GMRF_SD_SD", "GMRF_PSI_MEAN", "GMRF_PSI_SD")]

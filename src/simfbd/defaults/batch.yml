@@ -18,7 +18,7 @@ origin_age:
 
 rate_priors:
   speciation:
-    log_mean:                      # required. lognormal, on the log scale; one draw per interval
+    log_mean:                      # required, unless gamma is set. lognormal, on the log scale; one draw per interval
     log_sd:                        # required
   extinction:
     log_mean:                      # required
@@ -30,6 +30,18 @@ rate_priors:
     log_mean:                      # required
     log_sd:                        # required
   anagenetic_speciation:           # required. above 0, an anagenetic rate is drawn from the speciation prior; 0 is budding only
+  gamma:                           # PyRate's prior: an independent gamma draw per interval. set, the lognormals are left out
+    speciation:
+      shape:                       # PyRate's -pL is 1.1
+      rate:                        # unset, it is drawn per replicate from Uniform(0, estimated_rate_max) and
+                                   # estimated, which is what PyRate does when the shift times are fixed
+    extinction:
+      shape:                       # PyRate's -pM is 1.1
+      rate:
+    fossil_sampling:
+      shape:                       # PyRate's -pP is 1.5
+      rate:                        # required with gamma. PyRate's is 1.1
+    estimated_rate_max: 20
 
 rates_through_time:
   random_walk:

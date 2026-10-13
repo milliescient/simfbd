@@ -28,6 +28,16 @@ BATCH_SETTINGS = [
     ("PSD", "rate_priors.fossil_sampling.log_sd", ""),
     ("LAMBDA_A", "rate_priors.anagenetic_speciation",
      "above 0, an anagenetic rate is drawn from the speciation prior; 0 is budding only"),
+    ("GAMMA_L_SHAPE", "rate_priors.gamma.speciation.shape",
+     "PyRate's prior: an independent gamma draw per interval, in place of the lognormals"),
+    ("GAMMA_L_RATE", "rate_priors.gamma.speciation.rate",
+     "left out, it is drawn per replicate from Uniform(0, estimated_rate_max) and estimated"),
+    ("GAMMA_M_SHAPE", "rate_priors.gamma.extinction.shape", ""),
+    ("GAMMA_M_RATE", "rate_priors.gamma.extinction.rate", ""),
+    ("GAMMA_P_SHAPE", "rate_priors.gamma.fossil_sampling.shape", ""),
+    ("GAMMA_P_RATE", "rate_priors.gamma.fossil_sampling.rate", "fixed; PyRate's is 1.1"),
+    ("GAMMA_RATE_MAX", "rate_priors.gamma.estimated_rate_max",
+     "upper bound of the uniform a speciation or extinction rate left out is drawn from"),
 
     ("GMRF_SD", "rates_through_time.random_walk.step_sd",
      "sd of the step between adjacent intervals' log rates"),
@@ -128,6 +138,10 @@ RUN_RECORD = {
 # what a batch cannot be simulated without, and a run cannot be analyzed without
 BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD",
                   "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "LAMBDA_A", "ORIGIN_SAMPLED"]
+# a batch states one rate prior: the lognormals, or the gammas, which need these instead
+LOGNORMAL = ["LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD"]
+GAMMA = ["GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE", "GAMMA_P_SHAPE", "GAMMA_P_RATE"]
+GAMMA_REQUIRED = ["GAMMA_L_SHAPE", "GAMMA_M_SHAPE", "GAMMA_P_SHAPE", "GAMMA_P_RATE"]
 RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN", "NCORES"]
 # The value a setting takes when a config leaves it out is in defaults/batch.yml and
 # defaults/run.yml, not here.

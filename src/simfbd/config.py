@@ -92,6 +92,12 @@ def load(path, kind, with_defaults=True):
     name_of = {key: name for key, name, _ in table}
     if with_defaults is False:
         out.pop("_uses")
+    if kind == "batch" and any(k in out for k in S.GAMMA):
+        both = [name_of[k] for k in S.LOGNORMAL if k in out]
+        if both:
+            raise SystemExit(f"simfbd: {path} sets rate_priors.gamma and {', '.join(both)}. "
+                             f"A batch has one rate prior.")
+        required = [k for k in required if k not in S.LOGNORMAL] + S.GAMMA_REQUIRED
     missing = [name_of[k] for k in required if k not in out]
     if missing:
         raise SystemExit(f"simfbd: {path} does not set {', '.join(missing)}")

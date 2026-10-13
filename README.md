@@ -205,6 +205,33 @@ It cannot be regenerated, and one with a `manifest.tsv` cannot be extended. A ne
 a `config.yml`, and `simfbd config convert old/config.sh` writes one from an old config,
 saying what it left out.
 
+## PyRate's rate prior
+
+A batch draws its rates from lognormals unless it sets `rate_priors.gamma`, which is PyRate's
+prior: an independent gamma draw for each rate in each interval. It replaces the lognormals,
+so a batch states one or the other, and it does not combine with a random walk or the
+stationary prior.
+
+```yaml
+rate_priors:
+  anagenetic_speciation: 0
+  gamma:
+    speciation: {shape: 1.1}                   # PyRate's -pL
+    extinction: {shape: 1.1}                   # PyRate's -pM
+    fossil_sampling: {shape: 1.5, rate: 1.1}   # PyRate's -pP
+```
+
+A speciation or extinction `rate` left out is PyRate's hyperprior, which it uses whenever the
+shift times are fixed: one rate parameter shared by the intervals, Uniform(0, 20). The
+simulator draws it per replicate and the analysis estimates it, as `gamma_rate_lambda` and
+`gamma_rate_mu`, which are in `true_vals.tsv` and ranked with the rates. Stated, it is fixed.
+The fossil sampling `rate` is always stated. PyRate's hyperprior on it, which `-pP 1.5 0`
+asks for, is not built.
+
+A rate parameter near zero is a speciation rate with no ceiling, so a batch that leaves one
+out wants `simulation_limits.max_lineages`, and its `prior_filter` says how much of the
+uniform that refused. The `fbdsp` model has its own lognormals and is refused on a gamma batch.
+
 ## The two ceilings on a simulation
 
 Batches that differ only in the origin prior pool into a range of tree sizes. A deep origin

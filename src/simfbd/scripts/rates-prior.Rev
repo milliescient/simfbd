@@ -1,8 +1,9 @@
 # The prior on the skyline rates, shared by every analysis so that no two arms of a
 # comparison can drift apart. dnFBDRP, dnBDS and anything else source this file.
 #
-# Three arms, chosen by the batch config: a stationary OU process when OU_THETA is set, an
-# order-1 GMRF when GMRF_SD or its hyperprior is set, and independent lognormals otherwise.
+# Four arms, chosen by the batch config: a stationary OU process when OU_THETA is set, an
+# order-1 GMRF when GMRF_SD or its hyperprior is set, PyRate's independent gammas when
+# GAMMA_L_SHAPE is set, and independent lognormals otherwise.
 # The simulator draws from whichever one is configured, through the same keys.
 
 # an aux file written before the GMRF existed does not set this
@@ -41,6 +42,27 @@ if (!exists("OU_PSI_SD")) OU_PSI_SD <- 0
 OU_HIER <- (OU_SD_SD > 0)
 # an aux file written before truncation existed does not set this
 if (!exists("PRESENT")) PRESENT <- 0
+# PyRate's prior. A speciation or extinction rate parameter the batch leaves unset was drawn
+# per replicate by the simulator from Uniform(0, GAMMA_RATE_MAX), so it is estimated here.
+if (!exists("GAMMA_L_SHAPE")) GAMMA_L_SHAPE <- -1
+if (!exists("GAMMA_L_RATE")) GAMMA_L_RATE <- -1
+if (!exists("GAMMA_M_RATE")) GAMMA_M_RATE <- -1
+if (!exists("GAMMA_RATE_MAX")) GAMMA_RATE_MAX <- 20
+GAMMA <- (GAMMA_L_SHAPE > 0)
+if (GAMMA) {
+    if (GAMMA_L_RATE > 0) {
+        gamma_rate_lambda <- GAMMA_L_RATE
+    } else {
+        gamma_rate_lambda ~ dnUniform(0, GAMMA_RATE_MAX)
+        moves.append( mvScale(gamma_rate_lambda, lambda=0.5, weight=2) )
+    }
+    if (GAMMA_M_RATE > 0) {
+        gamma_rate_mu <- GAMMA_M_RATE
+    } else {
+        gamma_rate_mu ~ dnUniform(0, GAMMA_RATE_MAX)
+        moves.append( mvScale(gamma_rate_mu, lambda=0.5, weight=2) )
+    }
+}
 # an aux file written before thinning existed does not set this
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
@@ -153,6 +175,15 @@ if (SKYLINE) {
             mu[i] := exp(log_mu[i])
             psi[i] := exp(log_psi[i])
         }
+    } else if (GAMMA) {
+        for (i in 1:n_int) {
+            lambda[i] ~ dnGamma(GAMMA_L_SHAPE, gamma_rate_lambda)
+            moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
+            mu[i] ~ dnGamma(GAMMA_M_SHAPE, gamma_rate_mu)
+            moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
+            psi[i] ~ dnGamma(GAMMA_P_SHAPE, GAMMA_P_RATE)
+            moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
+        }
     } else {
     for (i in 1:n_int) {
         lambda[i] ~ dnLognormal(LMEAN, LSD)
@@ -164,9 +195,15 @@ if (SKYLINE) {
     }
     }
 } else {
+    if (GAMMA) {
+        lambda ~ dnGamma(GAMMA_L_SHAPE, gamma_rate_lambda)
+        mu ~ dnGamma(GAMMA_M_SHAPE, gamma_rate_mu)
+        psi ~ dnGamma(GAMMA_P_SHAPE, GAMMA_P_RATE)
+    } else {
     lambda ~ dnLognormal(LMEAN, LSD)
     mu ~ dnLognormal(MMEAN, MSD)
     psi ~ dnLognormal(PMEAN, PSD)
+    }
     moves.append( mvScale(lambda, weight=3) )
     moves.append( mvScale(mu, weight=3) )
     moves.append( mvScale(psi, weight=3) )
