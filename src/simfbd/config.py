@@ -18,7 +18,6 @@ extend` adds them and the manifest counts them.
 """
 import difflib
 import os
-import subprocess
 
 import yaml
 
@@ -92,41 +91,8 @@ def load(path, kind, with_defaults=True):
     name_of = {key: name for key, name, _ in table}
     if with_defaults is False:
         out.pop("_uses")
-    if kind == "batch" and any(k in out for k in S.GAMMA):
-        both = [name_of[k] for k in S.LOGNORMAL if k in out]
-        if both:
-            raise SystemExit(f"simfbd: {path} sets rate_priors.gamma and {', '.join(both)}. "
-                             f"A batch has one rate prior.")
-        required = [k for k in required if k not in S.LOGNORMAL] + S.GAMMA_REQUIRED
     missing = [name_of[k] for k in required if k not in out]
     if missing:
         raise SystemExit(f"simfbd: {path} does not set {', '.join(missing)}")
     return out
 
-
-def from_shell(path):
-    """A config.sh as (kind, {internal name: value}, what was left out and why)."""
-    script = 'set -a; source "$1" >/dev/null 2>&1; env -0'
-    base = subprocess.run(["bash", "-c", "env -0"], capture_output=True).stdout
-    got = subprocess.run(["bash", "-c", script, "_", os.path.abspath(path)], capture_output=True).stdout
-    before = dict(e.split("=", 1) for e in base.decode().split("\0") if "=" in e)
-    after = dict(e.split("=", 1) for e in got.decode().split("\0") if "=" in e)
-    new = {k: v for k, v in after.items() if before.get(k) != v and k not in ("_", "SHLVL", "PWD", "OLDPWD")}
-    kind = "run" if "MODEL" in new else "batch"
-    known = {key for key, _, _ in KINDS[kind][0]}
-    notes = []
-    if "NREPS" in new:
-        notes.append(f"NREPS={new['NREPS']} is not a setting: a batch is given replicates with "
-                     f"simfbd extend <batch> {new['NREPS']}")
-    if "SIM_TIMEOUT" in new:
-        notes.append(f"SIM_TIMEOUT={new['SIM_TIMEOUT']} counted seconds and is gone. Set "
-                     f"simulation_limits.max_waiting_time_draws: 100000 refuses about what 20 "
-                     f"seconds did, 200000 what 60 did")
-    for k in sorted(set(new) - known - {"NREPS", "SIM_TIMEOUT"}):
-        notes.append(f"{k}={new[k]} is not a {kind} setting and was left out")
-    return kind, {k: v for k, v in new.items() if k in known}, notes
-
-
-def as_yaml(kind, values):
-    from .manifest import settings_lines
-    return "\n".join(settings_lines(KINDS[kind][0], values.get)) + "\n"

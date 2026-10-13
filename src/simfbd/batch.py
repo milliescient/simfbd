@@ -65,8 +65,6 @@ def extend(d, n, allow_sim_change=False):
     warn_if_dirty()
     tools.announce()
     env = dict(tools.environment(), **settings, BATCHDIR=d, NREPS=str(last), REPS_HAVE=str(have))
-    for stale in ("SIM_TIMEOUT",):
-        env.pop(stale, None)
     if subprocess.run([tools.rscript(), str(sim)], env=env).returncode != 0:
         die("simulation failed")
     manifest.write_batch(d, {"first": have + 1, "last": last,

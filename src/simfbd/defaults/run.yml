@@ -6,7 +6,7 @@
 #                                 # any of simfbd, rb, as `simfbd uses` prints them.
 
 inference:
-  model:                        # required. fbdr: dnFBDRP; bds: dnBDS; fbdsp: dnFBDSP
+  model:                        # required. fbdr: dnFBDRP; bds: dnBDS
   record_read:                  # required. the batch's specimens_<this> directory
   record_treated_as:            # required. complete or incomplete
   occurrence_ages: reported     # reported | midpoint | drawn. midpoint puts each occurrence at its

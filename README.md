@@ -84,7 +84,7 @@ src/simfbd/          the package
   manifest.py        writes, reads and checks a manifest.yml
   ranks.py           mean rank per parameter
   scripts/           what simfbd runs or carries: the simulator sim.R, the Rev templates,
-                     summarize.R, and the shell driver for batches made before configs were YAML
+                     summarize.R and pyrate.sh
 ```
 
 What it carries is only what it runs. Analyses of particular batches are in the notebook's
@@ -119,10 +119,10 @@ origin_age:
   max: 15
   origin_lineage_must_be_sampled: false
 rate_priors:
-  speciation: {log_mean: -2.0, log_sd: 0.5}
-  extinction: {log_mean: -2.0, log_sd: 0.5}
-  fossil_sampling: {log_mean: -0.125, log_sd: 0.5}
-  anagenetic_speciation: 0
+  gamma:
+    speciation: {shape: 1.1}
+    extinction: {shape: 1.1}
+    fossil_sampling: {shape: 1.5, rate: 1.1}
 record:
   occurrence_bins: {width: 3, oldest_edge: 30}
 simulation_limits:
@@ -195,26 +195,13 @@ be checked, since an extension changes the files.
 changes. Run from a checkout it asks git; an installed copy carries the commit it was built
 from.
 
-### Batches made before configs were YAML
+## The rate prior
 
-Such a batch holds a `config.sh` of short capitalised keys, and a `manifest.tsv` or a
-`manifest.yml` that carries its settings as well as its record, since they have nowhere
-readable to be but there. `simfbd fit`, `summarize`, `ranks` and `status` still work on it: the shell
-driver it was made with is carried in `scripts/` and is called for it and for nothing else.
-It cannot be regenerated, and one with a `manifest.tsv` cannot be extended. A new batch takes
-a `config.yml`, and `simfbd config convert old/config.sh` writes one from an old config,
-saying what it left out.
-
-## PyRate's rate prior
-
-A batch draws its rates from lognormals unless it sets `rate_priors.gamma`, which is PyRate's
-prior: an independent gamma draw for each rate in each interval. It replaces the lognormals,
-so a batch states one or the other, and it does not combine with a random walk or the
-stationary prior.
+The rates are drawn from PyRate's prior, an independent gamma for each rate in each interval,
+and analyzed under the same one.
 
 ```yaml
 rate_priors:
-  anagenetic_speciation: 0
   gamma:
     speciation: {shape: 1.1}                   # PyRate's -pL
     extinction: {shape: 1.1}                   # PyRate's -pM
@@ -230,7 +217,11 @@ asks for, is not built.
 
 A rate parameter near zero is a speciation rate with no ceiling, so a batch that leaves one
 out wants `simulation_limits.max_lineages`, and its `prior_filter` says how much of the
-uniform that refused. The `fbdsp` model has its own lognormals and is refused on a gamma batch.
+uniform that refused.
+
+Lognormal rates, a random walk or a stationary process through time, the dnFBDSP model with
+anagenetic speciation, and batches made before configs were YAML are on the `all-priors`
+branch.
 
 ## The two ceilings on a simulation
 
@@ -336,12 +327,8 @@ on one machine with one binary: each replicate's chain is seeded with `mcmc.seed
 replicate's number, so running it again gives the same log. Across machines or builds of rb a
 chain may differ, and its summaries agree to within Monte Carlo error.
 
-A run under a batch made before configs were YAML is analyzed by the shell driver, which sets no
-seed, so those analyses differ from one time to the next.
-
 ## Scope
 
-`inference.model: fbdr`, `bds` and `fbdsp` are wired. PyRate is not: its scripts are in
-`src/simfbd/scripts/pyrate/`, and `pyrate.sh` beside them reads the same
+`inference.model: fbdr` and `bds` are wired. PyRate is not: `pyrate.sh` reads the same
 `taxon/min_age/max_age/status` specimen format the simulator already writes, so reconnecting
 it needs no separate simulator. The previous TreeSim pipeline is in git history at 8563117.

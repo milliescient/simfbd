@@ -18,4 +18,4 @@ simfbd = "simfbd.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-simfbd = ["scripts/*", "scripts/pyrate/*", "defaults/*.yml", "_commit.txt"]
+simfbd = ["scripts/*", "defaults/*.yml", "_commit.txt"]

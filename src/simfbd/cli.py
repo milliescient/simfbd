@@ -6,7 +6,6 @@
     simfbd summarize <run> ...         SBC ranks, coverage and diagnostics for a run
     simfbd ranks <run>                 mean rank per parameter
     simfbd config default [batch|run]  every setting a config can hold, with its default
-    simfbd config convert <config.sh>  an old shell config, as the YAML that replaces it
     simfbd script <name> [args]        run one of the other scripts simfbd carries
     simfbd path <name>                 where one of those scripts is, for something that sources it
     simfbd doctor                      the tools this machine would run, and whether they are there
@@ -15,9 +14,7 @@
     simfbd --version                   the commit of this code, -dirty if it has uncommitted changes
 
 A batch is a directory holding a config.yml, anywhere on disk, and a run is a directory
-under its runs/ holding one too. A batch made before configs were YAML holds a config.sh
-instead. It can still be analyzed, summarised and checked, by the shell driver it was made
-with, which simfbd carries for that and for nothing else.
+under its runs/ holding one too.
 """
 import argparse
 import os
@@ -27,34 +24,15 @@ import sys
 from . import batch, config, fit, manifest, tools
 
 
-def old_format(d):
-    return os.path.exists(os.path.join(d, "config.sh")) and not os.path.exists(os.path.join(d, "config.yml"))
-
-
-def shell_driver(script, args, extra=None):
-    env = dict(tools.environment(), **(extra or {}))
-    raise SystemExit(subprocess.run(["bash", str(tools.script(script)), *args], env=env).returncode)
-
-
 def cmd_extend(a):
     d = os.path.abspath(a.batch)
     if "/runs/" in d + "/":
         raise SystemExit(f"error: {a.batch} is a run; extend its batch")
-    if old_format(d):
-        if manifest.find(d)[0] is None:
-            raise SystemExit(f"error: {a.batch} has a config.sh and no replicates. A new batch "
-                             f"takes a config.yml:\n       simfbd config convert {a.batch}/config.sh "
-                             f"> {a.batch}/config.yml")
-        shell_driver("extend.sh", [d, str(a.n)],
-                     {"ALLOW_SIM_CHANGE": "1"} if a.allow_sim_change else None)
     batch.extend(d if os.path.isabs(a.batch) else a.batch, a.n, a.allow_sim_change)
 
 
 def cmd_fit(a):
     run = a.run.rstrip("/")
-    b = os.path.dirname(os.path.dirname(os.path.abspath(run)))
-    if old_format(b):
-        shell_driver("run.sh", [os.path.abspath(run)], {"FORCE": "1"} if a.force else None)
     if not fit.fit(run, force=a.force, slots=a.slots, slot_dir=a.slot_dir):
         raise SystemExit(1)
 
@@ -72,17 +50,8 @@ def run_script(name, args):
 
 
 def cmd_config(a):
-    if a.what == "default":
-        for kind in ([a.arg] if a.arg in ("batch", "run") else ["batch", "run"]):
-            sys.stdout.write(open(config.defaults_file(kind)).read() + "\n")
-        return
-    if not a.arg:
-        raise SystemExit("usage: simfbd config convert <config.sh>")
-    kind, values, notes = config.from_shell(a.arg)
-    sys.stdout.write(f"# a {kind}'s config, converted from {os.path.basename(a.arg)}\n")
-    sys.stdout.write(config.as_yaml(kind, values))
-    for n in notes:
-        sys.stderr.write(f"note: {n}\n")
+    for kind in ([a.arg] if a.arg in ("batch", "run") else ["batch", "run"]):
+        sys.stdout.write(open(config.defaults_file(kind)).read() + "\n")
 
 
 def cmd_doctor(a):
@@ -131,8 +100,8 @@ def main(argv=None):
     p.add_argument("runs", nargs="+")
     p = sub.add_parser("ranks", help="mean rank per parameter")
     p.add_argument("run")
-    p = sub.add_parser("config", help="the settings a config can hold, or an old config converted")
-    p.add_argument("what", choices=["default", "convert"])
+    p = sub.add_parser("config", help="the settings a config can hold")
+    p.add_argument("what", choices=["default"])
     p.add_argument("arg", nargs="?")
     p = sub.add_parser("script", help="run one of the other scripts simfbd carries")
     p.add_argument("name")

@@ -66,7 +66,7 @@ def digest(path):
 
 # what a simulation leaves in a batch for something else to read
 def batch_outputs(d):
-    names = ["true_vals.tsv", "nums.tsv", "times", "true_ranges", "ou_lags.tsv"]
+    names = ["true_vals.tsv", "nums.tsv", "times", "true_ranges"]
     names += sorted(n for n in os.listdir(d) if n.startswith("specimens_"))
     return [n for n in names if os.path.exists(os.path.join(d, n))]
 
@@ -89,29 +89,6 @@ def dig(doc, path):
 
 def shown(v):
     return str(v).lower() if isinstance(v, bool) else str(v)
-
-
-def settings_lines(settings, value_of, indent=""):
-    """The settings that are set, nested by section, each with what it means beside it."""
-    rows, open_path = [], []
-    for key, path, meaning in settings:
-        v = value_of(key)
-        if v is None or v == "":
-            continue
-        *sections, name = path.split(".")
-        common = 0
-        while (common < min(len(open_path), len(sections))
-               and open_path[common] == sections[common]):
-            common += 1
-        if common == 0 and rows:
-            rows.append(("", ""))
-        for depth in range(common, len(sections)):
-            rows.append((f"{indent}{'  ' * depth}{sections[depth]}:", ""))
-        open_path = sections
-        note = meaning
-        rows.append((f"{indent}{'  ' * len(sections)}{name}: {setting(v)}", note))
-    width = max((len(left) for left, note in rows if note), default=0) + 2
-    return [f"{left.ljust(width)}# {note}" if note else left for left, note in rows]
 
 
 def find(d):
@@ -193,13 +170,6 @@ def flat(d):
     return out
 
 
-def fields(args):
-    bad = [a for a in args if "=" not in a]
-    if bad:
-        raise SystemExit(f"manifest.py: expected field=value, got {bad[0]}")
-    return dict(a.split("=", 1) for a in args)
-
-
 def save(d, lines):
     body = "\n".join(lines) + "\n"
     yaml.safe_load(body)                    # a manifest nothing can read back is worse than none
@@ -221,7 +191,7 @@ def hash_lines(given, indent):
     return out
 
 
-def write_batch(d, f, value_of=None):
+def write_batch(d, f):
     _, old = find(d)
     first, last = int(f["first"]), int(f["last"])
     simulated = list((old or {}).get("simulated") or [])
@@ -277,15 +247,10 @@ def write_batch(d, f, value_of=None):
                   f"  refused: {s['filtered']}",
                   f"  of: {s['filtered_of']}",
                   f"  fraction: {s['filtered_frac']}"]
-    if value_of is not None:
-        # only for a batch whose config is a config.sh: its settings have nowhere readable
-        # to be but here
-        lines += ["", "# ---- the generating process, from config.sh ----"]
-        lines += settings_lines(BATCH_SETTINGS, value_of)
     save(d, lines)
 
 
-def write_run(d, f, value_of=None):
+def write_run(d, f):
     batch_path, batch = find(f["batch_dir"])
     if batch is None:
         raise SystemExit(f"manifest.py: {f['batch_dir']} has no manifest.yml")
@@ -328,14 +293,6 @@ def write_run(d, f, value_of=None):
         f"  rb_md5: {text(f['rb_md5'])}",
         f"  rb_describe: {text(f['rb_commit'])}",
     ]
-    if value_of is not None:
-        lines += ["", "# ---- the analysis, from this run's config.sh ----"]
-        lines += settings_lines(RUN_SETTINGS, value_of)
-        lines += ["", f"# ---- the generating process, copied from {batch_path} ----",
-                  "simulation:"]
-        lines += settings_lines(BATCH_SETTINGS,
-                                lambda k: None if sim.get(k) == "none" else sim.get(k),
-                                indent="  ")
     save(d, lines)
 
 
@@ -434,11 +391,7 @@ def main(argv):
     if len(argv) < 2:
         raise SystemExit(__doc__)
     cmd, d, rest = argv[0], argv[1].rstrip("/"), argv[2:]
-    if cmd == "write-batch":
-        write_batch(d, fields(rest), value_of=os.environ.get)
-    elif cmd == "write-run":
-        write_run(d, fields(rest), value_of=os.environ.get)
-    elif cmd == "get":
+    if cmd == "get":
         v = flat(d).get(rest[0])
         if v is not None:
             print(v)

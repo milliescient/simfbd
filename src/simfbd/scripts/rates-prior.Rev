@@ -1,211 +1,38 @@
 # The prior on the skyline rates, shared by every analysis so that no two arms of a
 # comparison can drift apart. dnFBDRP, dnBDS and anything else source this file.
 #
-# Four arms, chosen by the batch config: a stationary OU process when OU_THETA is set, an
-# order-1 GMRF when GMRF_SD or its hyperprior is set, PyRate's independent gammas when
-# GAMMA_L_SHAPE is set, and independent lognormals otherwise.
-# The simulator draws from whichever one is configured, through the same keys.
-
-# an aux file written before the GMRF existed does not set this
-if (!exists("GMRF_SD")) GMRF_SD <- 0
-# the hierarchical variant draws the walk width per replicate, so estimate it here
-if (!exists("GMRF_SD_MEAN")) GMRF_SD_MEAN <- -1
-if (!exists("GMRF_SD_SD")) GMRF_SD_SD <- 0
-if (!exists("GMRF_PSI_MEAN")) GMRF_PSI_MEAN <- -1
-if (!exists("GMRF_PSI_SD")) GMRF_PSI_SD <- 0
-GMRF_HIER <- (GMRF_SD_SD > 0)
-# Stationary OU alternative, on log lambda and log turnover rather than log mu. The
-# correlation is set per unit time, not per interval, so the prior does not depend on how
-# finely the span is cut. It is parameterised by the correlation at a fixed reference lag
-# OU_DREF in Myr: correlation at lag dt is phi_ref^(dt/OU_DREF).
-#
-# OU_PHI_A/B estimates that correlation, which lets the field shrink to constant rates
-# (phi_ref -> 1, every interval sharing one level) or to independent rates (phi_ref -> 0)
-# according to the data. OU_THETA instead pins it. A batch sets one or the other.
-if (!exists("OU_DREF")) OU_DREF <- 1.5
-if (!exists("OU_PHI_A")) OU_PHI_A <- -1
-if (!exists("OU_PHI_B")) OU_PHI_B <- -1
-if (!exists("OU_THETA")) OU_THETA <- -1
-if (!exists("TMEAN")) TMEAN <- 0
-if (!exists("TSD")) TSD <- 0.3
-OU_PHI_FREE <- (OU_PHI_A > 0)
-OU <- OU_PHI_FREE || (OU_THETA > 0)
-# the stationary prior's own hierarchy: a level per path and a stationary sd, both drawn per
-# replicate by the simulator and therefore estimated here
-if (!exists("LANCH")) LANCH <- 0
-if (!exists("TANCH")) TANCH <- 0
-if (!exists("PANCH")) PANCH <- 0
-if (!exists("OU_SD_MEAN")) OU_SD_MEAN <- -1
-if (!exists("OU_SD_SD")) OU_SD_SD <- 0
-if (!exists("OU_PSI_MEAN")) OU_PSI_MEAN <- -1
-if (!exists("OU_PSI_SD")) OU_PSI_SD <- 0
-OU_HIER <- (OU_SD_SD > 0)
-# an aux file written before truncation existed does not set this
-if (!exists("PRESENT")) PRESENT <- 0
-# PyRate's prior. A speciation or extinction rate parameter the batch leaves unset was drawn
-# per replicate by the simulator from Uniform(0, GAMMA_RATE_MAX), so it is estimated here.
-if (!exists("GAMMA_L_SHAPE")) GAMMA_L_SHAPE <- -1
-if (!exists("GAMMA_L_RATE")) GAMMA_L_RATE <- -1
-if (!exists("GAMMA_M_RATE")) GAMMA_M_RATE <- -1
-if (!exists("GAMMA_RATE_MAX")) GAMMA_RATE_MAX <- 20
-GAMMA <- (GAMMA_L_SHAPE > 0)
-if (GAMMA) {
-    if (GAMMA_L_RATE > 0) {
-        gamma_rate_lambda <- GAMMA_L_RATE
-    } else {
-        gamma_rate_lambda ~ dnUniform(0, GAMMA_RATE_MAX)
-        moves.append( mvScale(gamma_rate_lambda, lambda=0.5, weight=2) )
-    }
-    if (GAMMA_M_RATE > 0) {
-        gamma_rate_mu <- GAMMA_M_RATE
-    } else {
-        gamma_rate_mu ~ dnUniform(0, GAMMA_RATE_MAX)
-        moves.append( mvScale(gamma_rate_mu, lambda=0.5, weight=2) )
-    }
+# It is PyRate's: an independent gamma for each rate in each interval. The simulator draws
+# from the same one, through the same keys. A speciation or extinction rate parameter the
+# batch leaves unset was drawn per replicate from Uniform(0, GAMMA_RATE_MAX), so it is
+# estimated here.
+if (GAMMA_L_RATE > 0) {
+    gamma_rate_lambda <- GAMMA_L_RATE
+} else {
+    gamma_rate_lambda ~ dnUniform(0, GAMMA_RATE_MAX)
+    moves.append( mvScale(gamma_rate_lambda, lambda=0.5, weight=2) )
 }
-# an aux file written before thinning existed does not set this
+if (GAMMA_M_RATE > 0) {
+    gamma_rate_mu <- GAMMA_M_RATE
+} else {
+    gamma_rate_mu ~ dnUniform(0, GAMMA_RATE_MAX)
+    moves.append( mvScale(gamma_rate_mu, lambda=0.5, weight=2) )
+}
 if (SKYLINE) {
     timeline <- readDataDelimitedFile(BATCHDIR + "/times/times_" + rep + ".tsv")[1]
     n_int <- timeline.size() + 1
-    if (OU) {
-        # AR(1) on log lambda, log turnover and log psi, which is an OU process observed on
-        # this grid. mu is reconstructed as lambda * turnover, so net diversification stays
-        # tied to lambda instead of drifting independently of it.
-        #
-        # The level of each path and the stationary sds are drawn per replicate by the
-        # simulator, so they are estimated here from the same hyperpriors. The ranks are
-        # non-uniform by construction if the analysis's prior is not the generating one.
-        #
-        # phi is fixed on purpose. An AR(1) with lag-1 correlation phi on intervals of width
-        # dt is an OU process with mean reversion -log(phi)/dt, so estimating it on eight
-        # intervals would be estimating a property of the discretisation.
-        if (LANCH > 0) {
-            m_lambda ~ dnNormal(LMEAN, LANCH)
-            moves.append( mvSlide(m_lambda, delta=0.3, weight=2) )
-        } else {
-            m_lambda <- LMEAN
-        }
-        if (TANCH > 0) {
-            m_turnover ~ dnNormal(TMEAN, TANCH)
-            moves.append( mvSlide(m_turnover, delta=0.3, weight=2) )
-        } else {
-            m_turnover <- TMEAN
-        }
-        if (PANCH > 0) {
-            m_psi ~ dnNormal(PMEAN, PANCH)
-            moves.append( mvSlide(m_psi, delta=0.3, weight=2) )
-        } else {
-            m_psi <- PMEAN
-        }
-        if (OU_HIER) {
-            tau_rates ~ dnLognormal(OU_SD_MEAN, OU_SD_SD)
-            tau_psi ~ dnLognormal(OU_PSI_MEAN, OU_PSI_SD)
-            moves.append( mvScale(tau_rates, lambda=0.5, weight=2) )
-            moves.append( mvScale(tau_psi, lambda=0.5, weight=2) )
-        } else {
-            tau_rates <- LSD
-            tau_psi <- PSD
-        }
-        # Correlation between neighbouring intervals, from the lag in Myr between their
-        # midpoints. The simulator wrote these lags, so the two cannot disagree. The oldest
-        # interval reaches the origin, so its lag is the one that is not INTERVAL_WIDTH.
-        ou_lags <- readDataDelimitedFile(BATCHDIR + "/ou_lags.tsv")[1]
-        if (OU_PHI_FREE) {
-            phi_ref ~ dnBeta(OU_PHI_A, OU_PHI_B)
-            moves.append( mvBetaProbability(phi_ref, delta=2.0, weight=3) )
-            moves.append( mvSlide(phi_ref, delta=0.1, weight=2) )
-        } else {
-            phi_ref <- exp(-OU_THETA * OU_DREF)
-        }
-        # a power, not exp of a log, so nothing takes the log of a sampled quantity
-        for (i in 1:(n_int - 1)) {
-            ou_phi[i] := phi_ref ^ (ou_lags[i] / OU_DREF)
-            # abs() is a cast, not a guard: phi_ref is a probability so 1 - phi^2 is in
-            # (0,1), but a deterministic Real will not match sqrt's RealPos argument.
-            ou_mult[i] := sqrt(abs(1 - ou_phi[i]^2))
-        }
-        log_lambda[1] ~ dnNormal(m_lambda, tau_rates)
-        log_turn[1] ~ dnNormal(m_turnover, tau_rates)
-        log_psi[1] ~ dnNormal(m_psi, tau_psi)
-        for (i in 2:n_int) {
-            # the innovation sd that keeps the marginal variance stationary at this lag
-            il[i-1] := tau_rates * ou_mult[i-1]
-            ip[i-1] := tau_psi * ou_mult[i-1]
-            log_lambda[i] ~ dnNormal(m_lambda + ou_phi[i-1] * (log_lambda[i-1] - m_lambda), il[i-1])
-            log_turn[i] ~ dnNormal(m_turnover + ou_phi[i-1] * (log_turn[i-1] - m_turnover), il[i-1])
-            log_psi[i] ~ dnNormal(m_psi + ou_phi[i-1] * (log_psi[i-1] - m_psi), ip[i-1])
-        }
-        for (i in 1:n_int) {
-            moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_turn[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_psi[i], delta=0.2, weight=1) )
-            lambda[i] := exp(log_lambda[i])
-            mu[i] := exp(log_lambda[i] + log_turn[i])
-            psi[i] := exp(log_psi[i])
-        }
-    } else if (GMRF_SD > 0 || GMRF_HIER) {
-        # The walk width is either fixed by the batch or, in the hierarchical variant,
-        # drawn per replicate from the same lognormal the simulator used. It has to be
-        # estimated here for the same reason the walk itself is: the ranks are
-        # non-uniform by construction if the analysis's prior is not the generating one.
-        if (GMRF_HIER) {
-            gmrf_sd_rates ~ dnLognormal(GMRF_SD_MEAN, GMRF_SD_SD)
-            gmrf_sd_psi ~ dnLognormal(GMRF_PSI_MEAN, GMRF_PSI_SD)
-            moves.append( mvScale(gmrf_sd_rates, lambda=0.5, weight=2) )
-            moves.append( mvScale(gmrf_sd_psi, lambda=0.5, weight=2) )
-        } else {
-            gmrf_sd_rates <- GMRF_SD
-            gmrf_sd_psi <- GMRF_SD
-        }
-        # order-1 GMRF on the log rates, anchored at the present and walking back through time.
-        # The simulator draws from this same walk, or the ranks are non-uniform by construction.
-        log_lambda[1] ~ dnNormal(LMEAN, LSD)
-        log_mu[1] ~ dnNormal(MMEAN, MSD)
-        log_psi[1] ~ dnNormal(PMEAN, PSD)
-        for (i in 2:n_int) {
-            log_lambda[i] ~ dnNormal(log_lambda[i-1], gmrf_sd_rates)
-            log_mu[i] ~ dnNormal(log_mu[i-1], gmrf_sd_rates)
-            log_psi[i] ~ dnNormal(log_psi[i-1], gmrf_sd_psi)
-        }
-        for (i in 1:n_int) {
-            moves.append( mvSlide(log_lambda[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_mu[i], delta=0.2, weight=1) )
-            moves.append( mvSlide(log_psi[i], delta=0.2, weight=1) )
-            lambda[i] := exp(log_lambda[i])
-            mu[i] := exp(log_mu[i])
-            psi[i] := exp(log_psi[i])
-        }
-    } else if (GAMMA) {
-        for (i in 1:n_int) {
-            lambda[i] ~ dnGamma(GAMMA_L_SHAPE, gamma_rate_lambda)
-            moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
-            mu[i] ~ dnGamma(GAMMA_M_SHAPE, gamma_rate_mu)
-            moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
-            psi[i] ~ dnGamma(GAMMA_P_SHAPE, GAMMA_P_RATE)
-            moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
-        }
-    } else {
     for (i in 1:n_int) {
-        lambda[i] ~ dnLognormal(LMEAN, LSD)
+        lambda[i] ~ dnGamma(GAMMA_L_SHAPE, gamma_rate_lambda)
         moves.append( mvSlice(lambda[i], window=0.1, weight=1, search_method="stepping_out") )
-        mu[i] ~ dnLognormal(MMEAN, MSD)
+        mu[i] ~ dnGamma(GAMMA_M_SHAPE, gamma_rate_mu)
         moves.append( mvSlice(mu[i], window=0.1, weight=1, search_method="stepping_out") )
-        psi[i] ~ dnLognormal(PMEAN, PSD)
+        psi[i] ~ dnGamma(GAMMA_P_SHAPE, GAMMA_P_RATE)
         moves.append( mvSlice(psi[i], window=0.1, weight=1, search_method="stepping_out") )
     }
-    }
 } else {
-    if (GAMMA) {
-        lambda ~ dnGamma(GAMMA_L_SHAPE, gamma_rate_lambda)
-        mu ~ dnGamma(GAMMA_M_SHAPE, gamma_rate_mu)
-        psi ~ dnGamma(GAMMA_P_SHAPE, GAMMA_P_RATE)
-    } else {
-    lambda ~ dnLognormal(LMEAN, LSD)
-    mu ~ dnLognormal(MMEAN, MSD)
-    psi ~ dnLognormal(PMEAN, PSD)
-    }
+    lambda ~ dnGamma(GAMMA_L_SHAPE, gamma_rate_lambda)
+    mu ~ dnGamma(GAMMA_M_SHAPE, gamma_rate_mu)
+    psi ~ dnGamma(GAMMA_P_SHAPE, GAMMA_P_RATE)
     moves.append( mvScale(lambda, weight=3) )
     moves.append( mvScale(mu, weight=3) )
     moves.append( mvScale(psi, weight=3) )
 }
-

@@ -108,16 +108,16 @@ make_bins <- function(age, unc) {
 ###
 # SBC simulation constants
 #
-# Every generative parameter comes from the batch config.sh, exported into the
-# environment by bin/run.sh. A missing key is fatal: a silent default is how the
-# origin prior drifted from the value the analysis assumed.
+# Every generative parameter comes from the batch's config.yml, which simfbd exports into
+# the environment. A missing key is fatal: a silent default is how the origin prior drifted
+# from the value the analysis assumed.
 cfg <- function(k) {
   v <- Sys.getenv(k)
-  if (v == "") stop("config key ", k, " is not set; bin/run.sh must export it")
+  if (v == "") stop("config key ", k, " is not set; simfbd must export it")
   as.numeric(v)
 }
 
-# a key a batch may leave unset, so older configs keep working
+# a key a batch may leave unset
 cfg_opt <- function(k, default) {
   v <- Sys.getenv(k)
   if (v == "") default else as.numeric(v)
@@ -127,18 +127,10 @@ NINTERVALS    <- as.integer(cfg("NINTERVALS"))
 INTERVAL_WIDTH <- cfg("INTERVAL_WIDTH")
 # PyRate's rate prior: an independent gamma draw per interval. A speciation or extinction
 # rate parameter left unset is PyRate's hyperprior, drawn per replicate and estimated.
-GAMMA_L_SHAPE <- cfg_opt("GAMMA_L_SHAPE", NA); GAMMA_L_RATE <- cfg_opt("GAMMA_L_RATE", NA)
-GAMMA_M_SHAPE <- cfg_opt("GAMMA_M_SHAPE", NA); GAMMA_M_RATE <- cfg_opt("GAMMA_M_RATE", NA)
-GAMMA_P_SHAPE <- cfg_opt("GAMMA_P_SHAPE", NA); GAMMA_P_RATE <- cfg_opt("GAMMA_P_RATE", NA)
+GAMMA_L_SHAPE <- cfg("GAMMA_L_SHAPE"); GAMMA_L_RATE <- cfg_opt("GAMMA_L_RATE", NA)
+GAMMA_M_SHAPE <- cfg("GAMMA_M_SHAPE"); GAMMA_M_RATE <- cfg_opt("GAMMA_M_RATE", NA)
+GAMMA_P_SHAPE <- cfg("GAMMA_P_SHAPE"); GAMMA_P_RATE <- cfg("GAMMA_P_RATE")
 GAMMA_RATE_MAX <- cfg_opt("GAMMA_RATE_MAX", 20)
-GAMMA <- !is.na(GAMMA_L_SHAPE)
-if (GAMMA && anyNA(c(GAMMA_M_SHAPE, GAMMA_P_SHAPE, GAMMA_P_RATE)))
-  stop("GAMMA_L_SHAPE set without GAMMA_M_SHAPE, GAMMA_P_SHAPE and GAMMA_P_RATE")
-# the gammas replace the lognormals, so a gamma batch does not state them
-lognormal <- if (GAMMA) function(k) cfg_opt(k, NA) else cfg
-LMEAN <- lognormal("LMEAN"); LSD <- lognormal("LSD")
-MMEAN <- lognormal("MMEAN"); MSD <- lognormal("MSD")
-PMEAN <- lognormal("PMEAN"); PSD <- lognormal("PSD")
 AGE_MIN <- cfg("AGE_MIN"); AGE_MAX <- cfg("AGE_MAX")
 BIN_WIDTH <- cfg("BIN_WIDTH"); BIN_MAX <- cfg("BIN_MAX")
 
@@ -202,86 +194,9 @@ if (PRESENT > 0 && abs(PRESENT %% BIN_WIDTH) > 1e-9) {
 # a function of the record and redraws theta, so it leaves the posterior alone. At rho < 1 the
 # extant singletons are added after this test, so it counts the fossil record only.
 MIN_TAXA <- as.integer(cfg_opt("MIN_TAXA", 1))
-# Order-1 GMRF on the log rates: anchor at the present, random walk back through time. Unset
-# keeps the independent draw, so an older batch reproduces.
-GMRF_SD <- cfg_opt("GMRF_SD", 0)
-# Hierarchical variant: the walk's own standard deviation is drawn per replicate, so one batch
-# spans clades that vary a lot through time and clades that barely vary, and the analysis
-# estimates it. Setting GMRF_SD_MEAN switches this on, and GMRF_SD is then ignored.
-#
-# The hyperprior is lognormal on purpose. A heavy-tailed one puts real mass on walks steep
-# enough to trip the MAX_LINEAGES filter, and that filter is a function of theta alone, so it
-# truncates the prior the simulator draws from while the analysis keeps the untruncated one.
-# The ranks would be non-uniform for that reason alone.
-#
-# lambda and mu carry the through-time signal; psi gets its own, usually narrower, so that a
-# replicate's sampling regime stays a meaningful label to stratify on.
-# Stationary alternative to the random walk: an OU process on log lambda, log turnover and
-# log psi, sampled at the interval midpoints, with stationary sds LSD, TSD, PSD in
-# Myr and mean reversion OU_THETA per Myr, with stationary sds LSD, TSD, PSD. Setting
-# OU_THETA switches it on and GMRF_SD is then ignored.
-#
-# Two reasons to prefer it. A random walk's marginal prior widens with distance from the
-# anchor, so the oldest interval gets a far vaguer prior than the youngest; an AR(1) is
-# stationary, so every interval gets the same one. And parameterising on turnover rather
-# than mu keeps net diversification tied to lambda, which is what stops a drifting
-# lambda - mu compounding into clades that trip the MAX_LINEAGES filter. Measured, that
-# filter fires on 18% of random-walk draws and effectively none of these.
-#
-# The correlation is set per unit time, not per interval, so the prior is a property of the
-# timeline and not of the grid. It is parameterised by the correlation at a fixed reference
-# lag OU_DREF in Myr, which is bounded in (0,1) and is the scale the data informs, rather
-# than by the mean reversion itself. Correlation at lag dt is OU_PHI_REF^(dt/OU_DREF).
-#
-# OU_PHI_A/B > 0 draws that correlation per replicate from a Beta, so the field can shrink to
-# constant rates (phi -> 1, every interval sharing one level) or to independent rates
-# (phi -> 0) according to the data. OU_THETA instead pins it, which is what the control batch
-# did. Exactly one of the two.
-OU_DREF  <- cfg_opt("OU_DREF", 1.5)
-OU_PHI_A <- cfg_opt("OU_PHI_A", NA)
-OU_PHI_B <- cfg_opt("OU_PHI_B", NA)
-OU_THETA <- cfg_opt("OU_THETA", NA)
-OU_PHI_FREE <- !is.na(OU_PHI_A)
-if (OU_PHI_FREE && !is.na(OU_THETA))
-  stop("set OU_PHI_A/B or OU_THETA, not both")
-if (OU_PHI_FREE && is.na(OU_PHI_B)) stop("OU_PHI_A set without OU_PHI_B")
-TMEAN  <- cfg_opt("TMEAN", 0)
-TSD    <- cfg_opt("TSD", 0.3)
-OU <- OU_PHI_FREE || !is.na(OU_THETA)
-# The stationary prior's own hierarchy, and the two things it has to do at once. The MEAN of
-# each path is drawn per replicate, which sweeps regimes ACROSS replicates, and the
-# stationary sd is drawn per replicate, which varies rates WITHIN one. Both are parameters
-# the analysis estimates, so both are truth and both have to rank uniformly.
-#
-# The mean reversion is fixed, and is a rate per Myr rather than a lag-1 correlation. A
-# correlation per cell would make the prior a property of the grid: refining the grid at a
-# fixed span would change the process. A rate per Myr does not, so the interval count is a
-# resolution choice and nothing else. Estimating it would be estimating a property of the
-# discretisation, so it stays fixed.
-#
-# The intercept sds at 0 keep the fixed mean an older batch drew with.
-LANCH <- cfg_opt("LANCH", 0)
-TANCH <- cfg_opt("TANCH", 0)
-PANCH <- cfg_opt("PANCH", 0)
-OU_SD_MEAN  <- cfg_opt("OU_SD_MEAN", NA)
-OU_SD_SD    <- cfg_opt("OU_SD_SD", 0)
-OU_PSI_MEAN <- cfg_opt("OU_PSI_MEAN", NA)
-OU_PSI_SD   <- cfg_opt("OU_PSI_SD", 0)
-OU_HIER <- !is.na(OU_SD_MEAN)
-if (OU_HIER && is.na(OU_PSI_MEAN)) stop("OU_SD_MEAN set without OU_PSI_MEAN")
-if (OU_HIER && !OU) stop("OU_SD_MEAN set without OU_PHI_A/B or OU_THETA")
-if (GAMMA && OU) stop("the gamma prior is independent across intervals; unset OU_PHI_A/B and OU_THETA")
-GMRF_SD_MEAN  <- cfg_opt("GMRF_SD_MEAN", NA)
-GMRF_SD_SD    <- cfg_opt("GMRF_SD_SD", 0)
-GMRF_PSI_MEAN <- cfg_opt("GMRF_PSI_MEAN", NA)
-GMRF_PSI_SD   <- cfg_opt("GMRF_PSI_SD", 0)
-GMRF_HIER <- !is.na(GMRF_SD_MEAN)
-if (GMRF_HIER && is.na(GMRF_PSI_MEAN)) stop("GMRF_SD_MEAN set without GMRF_PSI_MEAN")
-if (GAMMA && (GMRF_HIER || GMRF_SD > 0))
-  stop("the gamma prior is independent across intervals; unset GMRF_SD and GMRF_SD_MEAN")
 MAX_TAXA <- cfg_opt("MAX_TAXA", Inf)
 # "record" makes MIN_TAXA and MAX_TAXA count every reported taxon, the survivors seen at the
-# present included; unset keeps the fossil-only count, so an older batch reproduces.
+# present included; unset counts the fossil-sampled ones only.
 TAXA_COUNT <- Sys.getenv("TAXA_COUNT", "fossil")
 if (!TAXA_COUNT %in% c("fossil", "record")) stop("TAXA_COUNT must be fossil or record")
 # a floor on fossil-sampled taxa alone, for analyses that leave the present-only taxa out
@@ -301,40 +216,6 @@ BACKWARD <- !is.na(N_EXTANT)
 cov_breaks <- PRESENT + INTERVAL_WIDTH * seq_len(NINTERVALS - 1)
 cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 
-# The generative draw, in one place. Both the initial draw and the rejection redraw
-# call this, so they cannot diverge.
-# Returned oldest-first, the order paleobuddy's forward shifts need. The walk itself runs
-# from the present backwards, so index 1 of the walk is the youngest interval.
-# Lags between interval midpoints, in Myr, youngest first. The oldest interval runs from the
-# last breakpoint to the origin, so its width is taken at the age prior's mean: making it the
-# replicate's own age would put the origin in the rate prior, and the breakpoints are kept
-# clear of age for that reason. Measured, the two differ by 0.02 points of refusal rate.
-OU_WIDTHS <- c(rep(INTERVAL_WIDTH, NINTERVALS - 1),
-               (AGE_MIN + AGE_MAX) / 2 - PRESENT - INTERVAL_WIDTH * (NINTERVALS - 1))
-OU_LAGS <- diff(cumsum(OU_WIDTHS) - OU_WIDTHS / 2)
-if (OU && OU_WIDTHS[NINTERVALS] <= 0)
-  stop("the grid spans past the mean age, so the oldest interval has no width")
-
-# The per-lag correlations implied by one reference-lag correlation. Equal to
-# exp(-theta * lag) with theta = -log(phi_ref)/OU_DREF, written as a power so no logs are
-# taken of a sampled quantity.
-ou_phis <- function(phi_ref) phi_ref^(OU_LAGS / OU_DREF)
-
-# One OU path on the log scale, youngest interval first, on an irregular grid.
-ou_path <- function(m, tau, n, phis) {
-  x <- numeric(n); x[1] <- rnorm(1, m, tau)
-  if (n > 1) for (i in 2:n) {
-    phi <- phis[i - 1]
-    x[i] <- m + phi * (x[i - 1] - m) + rnorm(1, 0, tau * sqrt(1 - phi^2))
-  }
-  x
-}
-
-draw_rates <- function(m, s, n, walk_sd = GMRF_SD) {
-  if (walk_sd <= 0) return(rlnorm(n, m, s))
-  rev(exp(cumsum(c(rnorm(1, m, s), rnorm(n - 1, 0, walk_sd)))))
-}
-
 # Truth, named, in one place. It used to be assembled by positional appends, which put
 # report_prob between two hyperparameters when both were on, and read the hyperparameters out
 # of the global environment, so a replicate accepted without a rejection recorded the
@@ -344,66 +225,23 @@ truth_of <- function(th, lambda, mu, psi, age) {
   v <- c(setNames(rev(lambda), paste0("lambda", seq_len(K))),
          setNames(rev(mu),     paste0("mu", seq_len(K))),
          setNames(rev(psi),    paste0("psi", seq_len(K))))
-  if (th$lambda_a > 0) v <- c(v, lambda_a = th$lambda_a)
   if (REPORT_PROB < 1) v <- c(v, report_prob = th$report_prob)
   v <- c(v, age = age)
-  if (OU) {
-    if (LANCH > 0) v <- c(v, m_lambda = th$m_lambda)
-    if (TANCH > 0) v <- c(v, m_turnover = th$m_turnover)
-    if (PANCH > 0) v <- c(v, m_psi = th$m_psi)
-    if (OU_HIER)   v <- c(v, tau_rates = th$tau_rates, tau_psi = th$tau_psi)
-    if (OU_PHI_FREE) v <- c(v, phi_ref = th$phi_ref)
-  } else if (GMRF_HIER) {
-    v <- c(v, gmrf_sd_rates = th$sd_rates, gmrf_sd_psi = th$sd_psi)
-  } else if (GAMMA) {
-    if (is.na(GAMMA_L_RATE)) v <- c(v, gamma_rate_lambda = th$gamma_rate_lambda)
-    if (is.na(GAMMA_M_RATE)) v <- c(v, gamma_rate_mu = th$gamma_rate_mu)
-  }
+  if (is.na(GAMMA_L_RATE)) v <- c(v, gamma_rate_lambda = th$gamma_rate_lambda)
+  if (is.na(GAMMA_M_RATE)) v <- c(v, gamma_rate_mu = th$gamma_rate_mu)
   v
 }
 
-draw_theta <- function(lambda_a) {
-  if (OU) {
-    # lambda and turnover share one stationary sd, psi gets its own, so that a replicate's
-    # sampling regime stays a label worth stratifying on
-    tau_rates <- if (OU_HIER) rlnorm(1, OU_SD_MEAN, OU_SD_SD) else LSD
-    tau_psi   <- if (OU_HIER) rlnorm(1, OU_PSI_MEAN, OU_PSI_SD) else PSD
-    m_lambda   <- if (LANCH > 0) rnorm(1, LMEAN, LANCH) else LMEAN
-    m_turnover <- if (TANCH > 0) rnorm(1, TMEAN, TANCH) else TMEAN
-    m_psi      <- if (PANCH > 0) rnorm(1, PMEAN, PANCH) else PMEAN
-    # the correlation at the reference lag, drawn per replicate when it is free
-    phi_ref <- if (OU_PHI_FREE) rbeta(1, OU_PHI_A, OU_PHI_B) else exp(-OU_THETA * OU_DREF)
-    phis <- ou_phis(phi_ref)
-    # paleobuddy wants oldest-first, so reverse once, after lambda and mu are assembled
-    ll <- ou_path(m_lambda, tau_rates, NINTERVALS, phis)
-    lt <- ou_path(m_turnover, tau_rates, NINTERVALS, phis)
-    lp <- ou_path(m_psi, tau_psi, NINTERVALS, phis)
-    return(list(age = runif(1, AGE_MIN, AGE_MAX),
-                lambda = rev(exp(ll)), mu = rev(exp(ll + lt)), psi = rev(exp(lp)),
-                m_lambda = m_lambda, m_turnover = m_turnover, m_psi = m_psi,
-                tau_rates = tau_rates, tau_psi = tau_psi, phi_ref = phi_ref,
-                lambda_a = if (lambda_a > 0) rlnorm(1, m_lambda, tau_rates) else lambda_a,
-                report_prob = if (REPORT_PROB < 1) runif(1) else 1))
-  }
-  if (GAMMA) {
-    b_lambda <- if (is.na(GAMMA_L_RATE)) runif(1, 0, GAMMA_RATE_MAX) else GAMMA_L_RATE
-    b_mu     <- if (is.na(GAMMA_M_RATE)) runif(1, 0, GAMMA_RATE_MAX) else GAMMA_M_RATE
-    return(list(age    = runif(1, AGE_MIN, AGE_MAX),
-                lambda = rgamma(NINTERVALS, GAMMA_L_SHAPE, rate = b_lambda),
-                mu     = rgamma(NINTERVALS, GAMMA_M_SHAPE, rate = b_mu),
-                psi    = rgamma(NINTERVALS, GAMMA_P_SHAPE, rate = GAMMA_P_RATE),
-                gamma_rate_lambda = b_lambda, gamma_rate_mu = b_mu,
-                lambda_a = if (lambda_a > 0) rgamma(1, GAMMA_L_SHAPE, rate = b_lambda) else lambda_a,
-                report_prob = if (REPORT_PROB < 1) runif(1) else 1))
-  }
-  sd_rates <- if (GMRF_HIER) rlnorm(1, GMRF_SD_MEAN, GMRF_SD_SD) else GMRF_SD
-  sd_psi   <- if (GMRF_HIER) rlnorm(1, GMRF_PSI_MEAN, GMRF_PSI_SD) else GMRF_SD
+# The generative draw, in one place. Both the initial draw and the rejection redraw call
+# this, so they cannot diverge.
+draw_theta <- function() {
+  b_lambda <- if (is.na(GAMMA_L_RATE)) runif(1, 0, GAMMA_RATE_MAX) else GAMMA_L_RATE
+  b_mu     <- if (is.na(GAMMA_M_RATE)) runif(1, 0, GAMMA_RATE_MAX) else GAMMA_M_RATE
   list(age    = runif(1, AGE_MIN, AGE_MAX),
-       lambda = draw_rates(LMEAN, LSD, NINTERVALS, sd_rates),
-       mu     = draw_rates(MMEAN, MSD, NINTERVALS, sd_rates),
-       psi    = draw_rates(PMEAN, PSD, NINTERVALS, sd_psi),
-       sd_rates = sd_rates, sd_psi = sd_psi,
-       lambda_a = if (lambda_a > 0) rlnorm(1, LMEAN, LSD) else lambda_a,
+       lambda = rgamma(NINTERVALS, GAMMA_L_SHAPE, rate = b_lambda),
+       mu     = rgamma(NINTERVALS, GAMMA_M_SHAPE, rate = b_mu),
+       psi    = rgamma(NINTERVALS, GAMMA_P_SHAPE, rate = GAMMA_P_RATE),
+       gamma_rate_lambda = b_lambda, gamma_rate_mu = b_mu,
        report_prob = if (REPORT_PROB < 1) runif(1) else 1)
 }
 
@@ -551,72 +389,13 @@ retain_occs <- function(occs, model, rp) {
   rbind(occs[1, ], interior[keep, , drop = FALSE], occs[nrow(occs), ])
 }
 
-# Anagenetic speciation relabels the same tree rather than reshaping it: split each
-# species at Poisson(lambda_a) times in its lifespan and reassign occurrences by time.
-add_anagenesis <- function(sim, fossils, lambda_a) {
-  n0 <- length(sim$TS)
-
-  # segment boundaries per species, oldest first
-  starts <- ends <- vector("list", n0)
-  for (k in 1:n0) {
-    te <- ifelse(is.na(sim$TE[k]), 0, sim$TE[k])
-    ev <- sort(runif(rpois(1, lambda_a * (sim$TS[k] - te)), te, sim$TS[k]),
-               decreasing = TRUE)
-    starts[[k]] <- c(sim$TS[k], ev)
-    ends[[k]] <- c(ev, te)
-  }
-
-  # new indices run in (species, segment) order
-  n_seg <- sapply(starts, length)
-  offset <- cumsum(c(0, n_seg))[1:n0]
-
-  # segment of species k alive at time t
-  seg_at <- function(k, t) {
-    s <- which(t <= starts[[k]] & t >= ends[[k]])
-    if (length(s) == 0) n_seg[k] else s[1]
-  }
-
-  N <- sum(n_seg)
-  TS <- TE <- rep(NA_real_, N)
-  PAR <- rep(NA_integer_, N)
-  EXTANT <- rep(FALSE, N)
-
-  for (k in 1:n0) {
-    for (s in 1:n_seg[k]) {
-      i <- offset[k] + s
-      last <- (s == n_seg[k]) && sim$EXTANT[k]
-      TS[i] <- starts[[k]][s]
-      TE[i] <- ifelse(last, NA_real_, ends[[k]][s])
-      EXTANT[i] <- last
-      # a later segment descends from the previous one; the first keeps the original
-      # parent, joined at whichever of that parent's segments was then alive
-      PAR[i] <- if (s > 1) offset[k] + s - 1 else
-        if (is.na(sim$PAR[k])) NA_integer_ else
-          offset[sim$PAR[k]] + seg_at(sim$PAR[k], sim$TS[k])
-    }
-  }
-
-  if (nrow(fossils) > 0) {
-    k <- as.integer(sub("^t", "", fossils$Species))
-    i <- offset[k] + mapply(seg_at, k, fossils$SampT)
-    fossils$Species <- paste0("t", i)
-    fossils$Extant <- EXTANT[i]
-  }
-
-  sim <- list(TE = TE, TS = TS, PAR = PAR, EXTANT = EXTANT)
-  class(sim) <- "sim"
-
-  list(SIM = sim, FOSSILS = fossils)
-}
-
 ###
 # write auxiliary simulation functions
 
-# simulate one rep. lambda_a > 0 adds anagenetic speciation; it is redrawn with the
-# other rates so the rejection loop keeps the joint draw intact.
+# simulate one rep
 simulate_rep <- function(rates, age, shifts, report_prob = 1,
                          model, unc, extant_singletons,
-                         sbc = FALSE, lambda_a = 0, origin_sampled = FALSE,
+                         sbc = FALSE, origin_sampled = FALSE,
                          theta = NULL) {
   th <- theta
   ## set parameters
@@ -668,13 +447,13 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     th <<- t
     age <<- t$age; tMax <<- t$age
     lambda <<- t$lambda; mu <<- t$mu; psi <<- t$psi
-    lambda_a <<- t$lambda_a; report_prob <<- t$report_prob
+    report_prob <<- t$report_prob
     lShifts <<- mShifts <<- pShifts <<- c(0, t$age - rev(cov_breaks))
     bins <<- cov_bins
   }
   redraw <- function() {
     sim_drawn <<- sim_drawn + 1
-    use_theta(draw_theta(lambda_a))
+    use_theta(draw_theta())
   }
 
   # run until we fulfill conditions
@@ -727,13 +506,6 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
                                              rShifts = if (length(psi) < 2) NULL else pShifts,
                                              bins = bins,
                                              returnAll = TRUE))
-    }
-
-    # split species at anagenetic events before any of them is reported
-    if (lambda_a > 0) {
-      ana <- add_anagenesis(sim, fossils, lambda_a)
-      sim <- ana$SIM
-      fossils <- ana$FOSSILS
     }
 
     # drop what the boundary hides, and recompute who is alive at it
@@ -819,8 +591,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       # condition="sampling". The previous 5-50 window conditions on the number
       # of sampled species, which no dnFBDRMatrix condition can correct for and
       # which biases the estimated rates (selecting for high-diversification trees).
-      # t1 is the origin lineage (paleobuddy species 1 starts at tMax, and anagenesis leaves its
-      # oldest segment at index 1). Requiring it makes the oldest SAMPLED birth equal age, which is
+      # t1 is the origin lineage (paleobuddy species 1 starts at tMax). Requiring it makes the oldest SAMPLED birth equal age, which is
       # what the analysis puts its origin prior on. Rejection redraws theta below, so conditioning
       # on a function of the reported record leaves the posterior alone.
       # specimens holds only fossil-sampled taxa here; the extant singletons are added after this
@@ -874,7 +645,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 # simulate one set
 simulate_set <- function(n_key, reps, rates, age, base_dir,
                          model = 2, unc = FALSE, extant_singletons = FALSE,
-                         diff_bins = 0, sbc = FALSE, lambda_a = 0, origin_sampled = FALSE,
+                         diff_bins = 0, sbc = FALSE, origin_sampled = FALSE,
                          first = 1) {
   # outside the SBC sets, rates are prepared as normal
   if (!sbc) {
@@ -965,9 +736,9 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     # an SBC set draws its own values. AGE_MIN must exceed the oldest breakpoint so
     # that every replicate has lineages in all intervals.
     if (sbc) {
-      th <- draw_theta(lambda_a)
+      th <- draw_theta()
       age <- th$age
-      lambda <- th$lambda; mu <- th$mu; psi <- th$psi; lambda_a <- th$lambda_a
+      lambda <- th$lambda; mu <- th$mu; psi <- th$psi
 
       # make rates list
       rates <- list(lambda = lambda,
@@ -983,7 +754,7 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
                             report_prob = if (sbc) th$report_prob else 1,
                             model = model, unc = unc,
                             extant_singletons = extant_singletons,
-                            sbc = sbc, lambda_a = lambda_a,
+                            sbc = sbc,
                             origin_sampled = origin_sampled,
                             theta = if (sbc) th else NULL)
     
@@ -1095,13 +866,6 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
                 col.names = first == 1, row.names = FALSE, quote = FALSE, sep = "\t")
   }
 
-  # The inference reads these rather than rederiving them, so the two cannot disagree about
-  # the prior's correlation structure.
-  if (OU) {
-    write.table(t(OU_LAGS), paste0(base_dir, "/ou_lags.tsv"),
-                col.names = FALSE, row.names = FALSE, quote = FALSE, sep = "\t")
-  }
-  
   # make numbers into a data frame
   nums <- data.frame(n_sp = n_sp, n_sampled = n_sampled,
                      perc_sampled = perc_sampled)
@@ -1112,10 +876,10 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
 
 
 # create function for simulating an SBC set
-simulate_batch <- function(reps, reps_dir, lambda_a = 0, origin_sampled = FALSE, first = 1) {
+simulate_batch <- function(reps, reps_dir, origin_sampled = FALSE, first = 1) {
   # run simulation set
   nums <- simulate_set("cov", reps, NULL, NULL, reps_dir,
-                       2, FALSE, FALSE, 0, sbc = TRUE, lambda_a = lambda_a,
+                       2, FALSE, FALSE, 0, sbc = TRUE,
                        origin_sampled = origin_sampled, first = first)
   
   # make nums a data frame
@@ -1138,19 +902,18 @@ simulate_batch <- function(reps, reps_dir, lambda_a = 0, origin_sampled = FALSE,
 #
 # seeds.RData is reused when present, so reruns of a batch stay comparable.
 #
-# Driven entirely by the batch config.sh, which bin/run.sh exports; BATCHDIR and NREPS
-# come from there too. NREPS is the count the batch ends with and REPS_HAVE the count it
+# Driven entirely by the batch's config.yml, which simfbd exports; BATCHDIR and NREPS
+# come from simfbd too. NREPS is the count the batch ends with and REPS_HAVE the count it
 # already holds, so an extension simulates only the replicates after REPS_HAVE.
 # Sourcing with sim_functions_only set loads the functions only.
 if (!exists("sim_functions_only")) {
   reps <- as.integer(cfg("NREPS"))
   first <- as.integer(cfg_opt("REPS_HAVE", 0)) + 1L
   reps_dir <- Sys.getenv("BATCHDIR")
-  if (reps_dir == "") stop("BATCHDIR is not set; bin/run.sh must export it")
+  if (reps_dir == "") stop("BATCHDIR is not set; simfbd must export it")
   if (!grepl("/$", reps_dir)) reps_dir <- paste0(reps_dir, "/")
   smart_dir_create(reps_dir)
 
-  lambda_a <- cfg("LAMBDA_A")
   # checked before the hours of simulating, not after: rows past the count would mean an
   # earlier extension wrote its truth and then never reached the manifest
   if (first > 1) {
@@ -1159,18 +922,20 @@ if (!exists("sim_functions_only")) {
       stop("true_vals.tsv holds ", had, " replicates, not the ", first - 1, " the manifest counts")
   }
   cat("simulating reps", first, "to", reps, "->", reps_dir, "\n")
-  nums <- simulate_batch(reps, reps_dir, lambda_a = lambda_a,
+  nums <- simulate_batch(reps, reps_dir,
                          origin_sampled = Sys.getenv("ORIGIN_SAMPLED") == "true",
                          first = first)
 
   write.table(nums, paste0(reps_dir, "nums.tsv"), append = first > 1,
               row.names = FALSE, col.names = first == 1, quote = FALSE, sep = "\t")
 
-  # what the draws actually used, for the manifest to check against config.sh
-  keys <- c("NINTERVALS","INTERVAL_WIDTH","LMEAN","LSD","MMEAN","MSD","PMEAN","PSD",
-            "AGE_MIN","AGE_MAX","BIN_WIDTH","BIN_MAX","NREPS","LAMBDA_A")
-  vals <- c(NINTERVALS, INTERVAL_WIDTH, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD,
-            AGE_MIN, AGE_MAX, BIN_WIDTH, BIN_MAX, reps, lambda_a)
+  # what the draws actually used, for simfbd to check against the config
+  keys <- c("NINTERVALS", "INTERVAL_WIDTH", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "NREPS",
+            "GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE",
+            "GAMMA_P_SHAPE", "GAMMA_P_RATE", "GAMMA_RATE_MAX")
+  vals <- c(NINTERVALS, INTERVAL_WIDTH, AGE_MIN, AGE_MAX, BIN_WIDTH, BIN_MAX, reps,
+            GAMMA_L_SHAPE, GAMMA_L_RATE, GAMMA_M_SHAPE, GAMMA_M_RATE,
+            GAMMA_P_SHAPE, GAMMA_P_RATE, GAMMA_RATE_MAX)
   if (is.finite(MAX_LINEAGES)) {
     keys <- c(keys, "MAX_LINEAGES"); vals <- c(vals, MAX_LINEAGES)
   }
@@ -1195,21 +960,6 @@ if (!exists("sim_functions_only")) {
     writeLines(sprintf("filtered\t%d\nfiltered_of\t%d\nfiltered_frac\t%s",
                        sim_filtered, tot, signif(sim_filtered / max(tot, 1), 4)),
                filter_file)
-  }
-  if (OU) {
-    keys <- c(keys, "OU_DREF", "OU_PHI_A", "OU_PHI_B", "OU_THETA",
-              "LANCH", "TANCH", "PANCH")
-    vals <- c(vals, OU_DREF, OU_PHI_A, OU_PHI_B, OU_THETA, LANCH, TANCH, PANCH)
-    if (OU_HIER) {
-      keys <- c(keys, "OU_SD_MEAN", "OU_SD_SD", "OU_PSI_MEAN", "OU_PSI_SD")
-      vals <- c(vals, OU_SD_MEAN, OU_SD_SD, OU_PSI_MEAN, OU_PSI_SD)
-    }
-  }
-  if (GAMMA) {
-    keys <- c(keys, "GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE",
-              "GAMMA_P_SHAPE", "GAMMA_P_RATE", "GAMMA_RATE_MAX")
-    vals <- c(vals, GAMMA_L_SHAPE, GAMMA_L_RATE, GAMMA_M_SHAPE, GAMMA_M_RATE,
-              GAMMA_P_SHAPE, GAMMA_P_RATE, GAMMA_RATE_MAX)
   }
   writeLines(sprintf("%s\t%s", keys, vals), paste0(reps_dir, "sim_params.tsv"))
   cat("done\n")

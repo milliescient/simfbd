@@ -23,7 +23,7 @@
 # (bd.getAugmentedFirstAges()) and mnModel logs it with the rates, on the same generation
 # grid as the matrix monitor. tau_K is logged too (tauK[...]) but is not plotted yet.
 #
-# usage:  Rscript bin/summarize.R sims/<batch>/runs/<name> ...
+# usage:  simfbd summarize <batch>/runs/<name> ...
 #
 # Every path and hyperparameter comes from the run's manifest, so the scoring uses the
 # same values the analysis used.
@@ -37,13 +37,12 @@ suppressMessages({
 
 latent_order <- c("d", "tau1", "b")   # youngest to oldest
 
-# Nothing here is inferred from a directory name. bin/run.sh writes the manifest when it
+# Nothing here is inferred from a directory name. simfbd writes the manifest when it
 # runs the analysis, recording the batch, the reporting model and every hyperprior it fed
 # to rb, so the scoring reads the same values the analysis used and cannot be pointed at the
 # wrong truth.
-# A manifest is read through bin/manifest.py, which answers by config key for a manifest.yml
-# and for the manifest.tsv of an older batch alike. It is found beside this script, so a batch
-# can be anywhere and this can be run from anywhere.
+# A manifest is read through manifest.py, which answers by config key. It is found beside this
+# script, so a batch can be anywhere and this can be run from anywhere.
 BIN <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
 read_manifest <- function(dir) {
   out <- system2(Sys.getenv("PY", "python3"),
@@ -54,7 +53,7 @@ read_manifest <- function(dir) {
 
 manifest_for <- function(run) {
   m <- read_manifest(run)
-  if (!length(m)) stop("no manifest in ", run, "; run bin/run.sh first")
+  if (!length(m)) stop("no manifest in ", run, "; simfbd fit it first")
   m
 }
 
@@ -63,14 +62,10 @@ manifest_for <- function(run) {
 is_nonextended <- function(mf) identical(mf$EXTENDED, "false")
 latent_order_for <- function(mf) if (is_nonextended(mf)) c("tau1", "b") else latent_order
 
-# the anagenetic batch draws one extra rate
-is_mixed <- function(mf) as.numeric(mf$LAMBDA_A) > 0
-
 rates_of <- function(mf) {
   ni <- as.integer(mf$NINTERVALS)
-  r <- as.vector(t(outer(c("lambda", "mu", "psi"), seq_len(ni),
-                         function(a, b) paste0(a, "[", b, "]"))))
-  if (is_mixed(mf)) c(r, "lambda_a") else r
+  as.vector(t(outer(c("lambda", "mu", "psi"), seq_len(ni),
+                    function(a, b) paste0(a, "[", b, "]"))))
 }
 pair_re <- "\\[ *[-0-9.eE+]+, *[-0-9.eE+]+ *\\]"
 
@@ -144,13 +139,9 @@ rate_stats <- function(mf, ids, logs) {
   # the simulator records the origin as `age`; score it alongside the rates when it was logged
   probe <- read.table(logs[[1]], header = TRUE, nrows = 1)
   if ("org" %in% names(probe)) rates <- c(rates, "org")
-  # the hierarchical GMRF estimates its own walk widths, so they are parameters like any
-  # other and their ranks have to be uniform too, or the hyperprior is not what was drawn
-  # the stationary prior adds a level per path; both fields add their own widths. All of them
-  # are drawn per replicate and estimated, so their ranks have to be uniform too, or the
-  # hyperprior is not what was drawn.
-  for (h in c("gmrf_sd_rates", "gmrf_sd_psi", "gamma_rate_lambda", "gamma_rate_mu",
-              "m_lambda", "m_turnover", "m_psi", "tau_rates", "tau_psi", "phi_ref")) {
+  # a gamma rate parameter the batch left out is drawn per replicate and estimated, so it is a
+  # parameter like any other and its ranks have to be uniform too
+  for (h in c("gamma_rate_lambda", "gamma_rate_mu")) {
     if (h %in% names(probe)) rates <- c(rates, h)
   }
 
@@ -398,5 +389,5 @@ make_figures <- function(run) {
 }
 
 runs <- commandArgs(TRUE)
-if (!length(runs)) stop("usage: Rscript bin/summarize.R sims/<batch>/runs/<name> ...")
+if (!length(runs)) stop("usage: simfbd summarize <batch>/runs/<name> ...")
 for (r in runs) make_figures(r)

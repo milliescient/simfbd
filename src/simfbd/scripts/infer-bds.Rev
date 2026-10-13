@@ -1,15 +1,15 @@
 ### Skyline birth-death-sampling inference over dnBDS, with the record on a dnFossilRecord node.
 ###
-### A copy of bin/infer-fbdrp.Rev with the process swapped and nothing else changed: same
+### A copy of infer-fbdrp.Rev with the process swapped and nothing else changed: same
 ### priors, origin prior, moves and monitors, so the two arms differ only in the density.
 ###
 ### Every prior hyperparameter arrives as a variable set by the per-rep aux file that
-### bin/run.sh generates from the batch config.sh. Nothing is hardcoded here: the batch
+### simfbd writes from the batch's config.yml. Nothing is hardcoded here: the batch
 ### that generated the data and the analysis of it read one definition, so they
 ### cannot drift apart.
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
-###   SPECIMENS, BATCHDIR, OUTDIR, LMEAN, LSD, MMEAN, MSD, PMEAN, PSD, AGE_MIN, AGE_MAX,
+###   SPECIMENS, BATCHDIR, OUTDIR, the GAMMA_ settings, AGE_MIN, AGE_MAX,
 ###   ORIGIN_PRIOR, MAXFA, SURVIVORS
 
 # TAXA is set when the run treats the occurrence ages some other way than as reported

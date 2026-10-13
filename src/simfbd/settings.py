@@ -16,20 +16,8 @@ BATCH_SETTINGS = [
     ("AGE_MAX", "origin_age.max", ""),
     ("ORIGIN_SAMPLED", "origin_age.origin_lineage_must_be_sampled", ""),
 
-    ("LMEAN", "rate_priors.speciation.log_mean",
-     "lognormal, on the log scale; one draw per interval"),
-    ("LSD", "rate_priors.speciation.log_sd", ""),
-    ("MMEAN", "rate_priors.extinction.log_mean", ""),
-    ("MSD", "rate_priors.extinction.log_sd", ""),
-    ("TMEAN", "rate_priors.turnover.log_mean",
-     "stationary prior only: extinction is speciation times turnover"),
-    ("TSD", "rate_priors.turnover.log_sd", ""),
-    ("PMEAN", "rate_priors.fossil_sampling.log_mean", ""),
-    ("PSD", "rate_priors.fossil_sampling.log_sd", ""),
-    ("LAMBDA_A", "rate_priors.anagenetic_speciation",
-     "above 0, an anagenetic rate is drawn from the speciation prior; 0 is budding only"),
     ("GAMMA_L_SHAPE", "rate_priors.gamma.speciation.shape",
-     "PyRate's prior: an independent gamma draw per interval, in place of the lognormals"),
+     "PyRate's prior: an independent gamma draw per interval"),
     ("GAMMA_L_RATE", "rate_priors.gamma.speciation.rate",
      "left out, it is drawn per replicate from Uniform(0, estimated_rate_max) and estimated"),
     ("GAMMA_M_SHAPE", "rate_priors.gamma.extinction.shape", ""),
@@ -38,32 +26,6 @@ BATCH_SETTINGS = [
     ("GAMMA_P_RATE", "rate_priors.gamma.fossil_sampling.rate", "fixed; PyRate's is 1.1"),
     ("GAMMA_RATE_MAX", "rate_priors.gamma.estimated_rate_max",
      "upper bound of the uniform a speciation or extinction rate left out is drawn from"),
-
-    ("GMRF_SD", "rates_through_time.random_walk.step_sd",
-     "sd of the step between adjacent intervals' log rates"),
-    ("GMRF_SD_MEAN", "rates_through_time.random_walk.step_sd_prior.log_mean",
-     "speciation and extinction: the step sd is drawn per replicate, lognormal"),
-    ("GMRF_SD_SD", "rates_through_time.random_walk.step_sd_prior.log_sd", ""),
-    ("GMRF_PSI_MEAN", "rates_through_time.random_walk.fossil_sampling_step_sd_prior.log_mean",
-     "fossil sampling gets its own step sd"),
-    ("GMRF_PSI_SD", "rates_through_time.random_walk.fossil_sampling_step_sd_prior.log_sd", ""),
-    ("OU_THETA", "rates_through_time.stationary.mean_reversion",
-     "fixed; set this or correlation_prior, not both"),
-    ("OU_DREF", "rates_through_time.stationary.reference_lag",
-     "the lag the correlation is stated at"),
-    ("OU_PHI_A", "rates_through_time.stationary.correlation_prior.beta_a",
-     "correlation at the reference lag, drawn per replicate from Beta(a, b)"),
-    ("OU_PHI_B", "rates_through_time.stationary.correlation_prior.beta_b", ""),
-    ("LANCH", "rates_through_time.stationary.level_sd.speciation",
-     "sd of each replicate's mean log rate about the prior mean; 0 fixes it there"),
-    ("TANCH", "rates_through_time.stationary.level_sd.turnover", ""),
-    ("PANCH", "rates_through_time.stationary.level_sd.fossil_sampling", ""),
-    ("OU_SD_MEAN", "rates_through_time.stationary.spread_prior.log_mean",
-     "speciation and turnover: the sd through time is drawn per replicate, lognormal"),
-    ("OU_SD_SD", "rates_through_time.stationary.spread_prior.log_sd", ""),
-    ("OU_PSI_MEAN", "rates_through_time.stationary.fossil_sampling_spread_prior.log_mean",
-     "fossil sampling gets its own"),
-    ("OU_PSI_SD", "rates_through_time.stationary.fossil_sampling_spread_prior.log_sd", ""),
 
     ("RHO", "record.extant_sampling_probability",
      "chance a lineage alive at the present is seen there"),
@@ -85,8 +47,7 @@ BATCH_SETTINGS = [
     ("MIN_FOSSIL_TAXA", "accepted_replicates.min_fossil_taxa", ""),
     ("N_EXTANT", "accepted_replicates.extant_species",
      "set, trees are drawn backward from exactly this many extant species and the origin is an "
-     "output rather than a draw; origin_age then only states the expected origin, which the "
-     "stationary arm needs to size its oldest interval"),
+     "output rather than a draw"),
 
     ("MAX_LINEAGES", "simulation_limits.max_lineages",
      "a draw expected to exceed this is refused unsimulated, which truncates the prior"),
@@ -95,7 +56,7 @@ BATCH_SETTINGS = [
 ]
 
 RUN_SETTINGS = [
-    ("MODEL", "inference.model", "fbdr: dnFBDRP; bds: dnBDS; fbdsp: dnFBDSP"),
+    ("MODEL", "inference.model", "fbdr: dnFBDRP; bds: dnBDS"),
     ("REPORTING", "inference.record_read", "the batch's specimens_<this> directory"),
     ("INFER", "inference.record_treated_as", "complete or incomplete"),
     ("AGES", "inference.occurrence_ages",
@@ -136,18 +97,14 @@ RUN_RECORD = {
 
 
 # what a batch cannot be simulated without, and a run cannot be analyzed without
-BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD",
-                  "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "LAMBDA_A", "ORIGIN_SAMPLED"]
-# a batch states one rate prior: the lognormals, or the gammas, which need these instead
-LOGNORMAL = ["LMEAN", "LSD", "MMEAN", "MSD", "PMEAN", "PSD"]
-GAMMA = ["GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE", "GAMMA_P_SHAPE", "GAMMA_P_RATE"]
-GAMMA_REQUIRED = ["GAMMA_L_SHAPE", "GAMMA_M_SHAPE", "GAMMA_P_SHAPE", "GAMMA_P_RATE"]
+BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "GAMMA_L_SHAPE", "GAMMA_M_SHAPE", "GAMMA_P_SHAPE",
+                  "GAMMA_P_RATE", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "ORIGIN_SAMPLED"]
 RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN", "NCORES"]
 # The value a setting takes when a config leaves it out is in defaults/batch.yml and
 # defaults/run.yml, not here.
 
 # a setting that takes one of a few words
-CHOICES = {"MODEL": ("fbdr", "bds", "fbdsp"), "INFER": ("complete", "incomplete"),
+CHOICES = {"MODEL": ("fbdr", "bds"), "INFER": ("complete", "incomplete"),
            "TAXA_COUNT": ("fossil", "record"),
            "ORIGIN_PRIOR": ("uniform", "exponential", "none"),
            "AGES": ("reported", "midpoint", "drawn")}

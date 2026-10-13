@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Rank SBC for one analysis: the fraction of posterior draws below the truth, per rate.
 
-Ranks, not point estimates: (est-true)/true divides by a lognormal draw that can be near
+Ranks, not point estimates: (est-true)/true divides by a drawn rate that can be near
 zero and reads as a large bias even when the posterior is centred.
 
-Usage:  bin/ranks.py sims/<batch>/runs/<name>
+Usage:  simfbd ranks <batch>/runs/<name>
 """
 import os
 import sys
