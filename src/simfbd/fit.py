@@ -18,14 +18,14 @@ from concurrent.futures import ThreadPoolExecutor
 from . import config, manifest, tools
 from .batch import die, replicates, warn_if_dirty
 
-TEMPLATES = {"fbdr": "infer-fbdrp.Rev",      # dnFBDRP: accounts for unsampled lineages
+TEMPLATES = {"fbdrp": "infer-fbdrp.Rev",      # dnFBDRP: accounts for unsampled lineages
              "bds": "infer-bds.Rev"}         # dnBDS: complete lineage sampling, PyRate's assumption
 
 # what a template is handed for a setting the batch left out
-UNSET = {"PRESENT": "0", "REPORT_PROB": "1", "GAMMA_L_RATE": "-1", "GAMMA_M_RATE": "-1",
+UNSET = {"PRESENT": "0", "GAMMA_L_RATE": "-1", "GAMMA_M_RATE": "-1",
          "GAMMA_RATE_MAX": "20"}
 PRIORS = ["GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE", "GAMMA_P_SHAPE",
-          "GAMMA_P_RATE", "GAMMA_RATE_MAX", "AGE_MIN", "AGE_MAX", "PRESENT", "REPORT_PROB"]
+          "GAMMA_P_RATE", "GAMMA_RATE_MAX", "AGE_MIN", "AGE_MAX", "PRESENT"]
 
 
 def lines_in(path):
@@ -49,7 +49,7 @@ def max_first_appearance(taxa):
     return f"{x if x > 0 else 1:.6f}"
 
 
-def midpoints_on_a_shift(batch, specimens, n):
+def midpoints_on_a_shift(batch, occurrences, n):
     """Replicates in which some bin's midpoint is a rate-shift time. Such an age is in neither
     interval, so rb finds no starting state. It is every replicate when a grid as wide as the
     rate intervals is offset by half a bin."""
@@ -57,7 +57,7 @@ def midpoints_on_a_shift(batch, specimens, n):
     for rep in range(1, n + 1):
         with open(os.path.join(batch, "times", f"times_{rep}.tsv")) as fh:
             shifts = [float(t) for t in fh.read().split()]
-        with open(os.path.join(batch, specimens, f"taxa_{rep}.tsv")) as fh:
+        with open(os.path.join(batch, occurrences, f"taxa_{rep}.tsv")) as fh:
             next(fh, None)
             ages = {(float(f[1]) + float(f[2])) / 2 for f in (l.split("\t") for l in fh)
                     if f[1] != f[2]}
@@ -67,7 +67,7 @@ def midpoints_on_a_shift(batch, specimens, n):
 
 
 def treat_ages(taxa, out, how, seed):
-    """Write a specimens table with every occurrence at an exact age: its bin's midpoint, or
+    """Write an occurrences table with every occurrence at an exact age: its bin's midpoint, or
     a uniform draw within the bin. This is what an analysis without age ranges is given."""
     rng = random.Random(seed)
     with open(taxa) as src, open(out, "w") as dst:
@@ -101,7 +101,7 @@ def pool_draws(logs, out):
         fh.writelines([header] + chains[0][:burn] + kept)
 
 
-def fit(run, force=False, slots=None, slot_dir=None):
+def fit(run, force=False, jobs=1, slots=None, slot_dir=None):
     run = os.path.normpath(run)
     batch = os.path.dirname(os.path.dirname(run))
     if os.path.basename(os.path.dirname(run)) != "runs":
@@ -117,8 +117,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
     # which rb: the one the config states, else the one that analyzed this run before
     before = manifest.find(run)[1] or {}
     tools.choose_rb(stated=manifest.used(stated, "rb"),
-                    recorded=manifest.used(before.get("uses"), "rb")
-                    or ((before.get("toolchain") or {}).get("rb_describe") or "").rsplit("-g", 1)[-1],
+                    recorded=manifest.used(before.get("uses"), "rb"),
                     config=rcfg, run=run, force=force)
     tools.require(stated, rcfg)
     bhash, rhash = manifest.digest(bcfg), manifest.digest(rcfg)
@@ -136,16 +135,18 @@ def fit(run, force=False, slots=None, slot_dir=None):
     if "RHO" in b and float(b["RHO"]) != float(r["RHO"]):
         die(f"{rcfg} assumes an extant sampling probability of {r['RHO']}, and {batch} was "
             f"generated under {b['RHO']}.")
+    if r["MODEL"] != "bds" and r["DROP_PRESENT_ONLY"] == "true":
+        die(f"{rcfg} sets inference.drop_present_only_taxa, which only the bds model reads.")
     template = tools.script(TEMPLATES[r["MODEL"]])
     complete = "true" if r["INFER"] == "complete" else "false"
-    specimens = f"specimens_{r['REPORTING']}"
-    if not os.path.isdir(os.path.join(batch, specimens)):
-        die(f"the batch has no {specimens}")
+    occurrences = f"occurrences_{r['REPORTING']}"
+    if not os.path.isdir(os.path.join(batch, occurrences)):
+        die(f"the batch has no {occurrences}")
     sky = "true" if int(b["NINTERVALS"]) > 1 else "false"
     if r["AGES"] == "midpoint":
-        hit = midpoints_on_a_shift(batch, specimens, n)
+        hit = midpoints_on_a_shift(batch, occurrences, n)
         if hit:
-            die(f"in {len(hit)} of {n} replicates of {specimens} a bin's midpoint is a rate-shift "
+            die(f"in {len(hit)} of {n} replicates of {occurrences} a bin's midpoint is a rate-shift "
                 f"time, which is in neither interval, so those chains cannot start. Read a grid "
                 f"whose midpoints miss the shifts.")
 
@@ -163,7 +164,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
     for d in (out, aux, os.path.join(run, "results")):
         os.makedirs(d, exist_ok=True)
     print(f"{os.path.basename(run)}: batch={os.path.basename(batch)} reads={r['REPORTING']} "
-          f"ages {r['AGES']} treated as {r['INFER']} conditioned on {r['COND']} rho={r['RHO']} reps={n}", flush=True)
+          f"ages {r['AGES']} reporting {r['INFER']} condition {r['COND']} rho={r['RHO']} reps={n}", flush=True)
     warn_if_dirty()
     tools.announce()
 
@@ -191,7 +192,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
             return True
         # one self-contained file per replicate: the settings as Rev variables, then the template
         v = {**UNSET, **b, **r}
-        taxa = os.path.join(batch, specimens, f"taxa_{rep}.tsv")
+        taxa = os.path.join(batch, occurrences, f"taxa_{rep}.tsv")
         treated = []
         if r["AGES"] != "reported":
             src, taxa = taxa, absolute(os.path.join(work, f"taxa_{rep}.tsv"))
@@ -204,7 +205,7 @@ def fit(run, force=False, slots=None, slot_dir=None):
                 f"MAXFA <- {max_first_appearance(taxa)}",
                 f"SKYLINE <- {sky}", f"COMPLETE <- {complete}", f'COND <- "{r["COND"]}"',
                 f"RHO <- {r['RHO']}", f"GENS <- {r['GENS']}", f"PRINTGEN <- {r['PRINTGEN']}",
-                f'BATCHDIR <- "{absolute(batch)}"', f'SPECIMENS <- "{specimens}"',
+                f'BATCHDIR <- "{absolute(batch)}"', f'OCCURRENCES <- "{occurrences}"',
                 f'OUTDIR <- "{absolute(to)}"']
         head += [f"{k} <- {v[k]}" for k in PRIORS]
         head += [f"SURVIVORS <- {r['SURVIVORS']}", f"DROP_PRESENT_ONLY <- {r['DROP_PRESENT_ONLY']}",
@@ -255,16 +256,16 @@ def fit(run, force=False, slots=None, slot_dir=None):
             pool_draws([os.path.join(aux, f"draw_{k}", f"rep_{rep}.log")
                         for k in range(1, draws + 1)], log)
 
-    with ThreadPoolExecutor(max_workers=max(1, int(r["NCORES"]))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, int(jobs))) as pool:
         list(pool.map(one, range(1, n + 1)))
 
-    rb_path, rb_md5, rb_describe = tools.rb_identity()
-    manifest.write_run(run, {"batch_dir": batch, "replicates": n, "specimens": specimens,
+    _, rb_md5, rb_describe = tools.rb_identity()
+    manifest.write_run(run, {"batch_dir": batch, "replicates": n, "occurrences": occurrences,
                              "inputs": {"config.yml": rhash,
                                         "batch": {"config.yml": bhash,
-                                                  specimens: manifest.digest(os.path.join(batch, specimens))},
+                                                  occurrences: manifest.digest(os.path.join(batch, occurrences))},
                                         "simfbd": {template.name: manifest.digest(template)}},
-                             "simfbd_commit": tools.version(), "rb_path": rb_path,
+                             "simfbd_commit": tools.version(),
                              "rb_md5": rb_md5, "rb_commit": rb_describe})
     done = sum(1 for f in os.listdir(out) if f.startswith("rep_") and f.endswith(".log"))
     print(f"logs: {done}/{n}, {lines_in(failures)} failed")

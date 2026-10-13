@@ -33,7 +33,7 @@ def cmd_extend(a):
 
 def cmd_fit(a):
     run = a.run.rstrip("/")
-    if not fit.fit(run, force=a.force, slots=a.slots, slot_dir=a.slot_dir):
+    if not fit.fit(run, force=a.force, jobs=a.jobs, slots=a.slots, slot_dir=a.slot_dir):
         raise SystemExit(1)
 
 
@@ -92,6 +92,7 @@ def main(argv=None):
     p = sub.add_parser("fit", help="analyze a run")
     p.add_argument("run")
     p.add_argument("--force", action="store_true", help="go on although a config has changed since the output was written")
+    p.add_argument("--jobs", type=int, default=1, help="replicates analyzed in parallel")
     p.add_argument("--slots", type=int, help="cap chains across every run sharing --slot-dir")
     p.add_argument("--slot-dir")
     p = sub.add_parser("status", help="does a batch or a run still match its manifest")

@@ -6,24 +6,24 @@
 #                                 # any of simfbd, rb, as `simfbd uses` prints them.
 
 inference:
-  model:                        # required. fbdr: dnFBDRP; bds: dnBDS
-  record_read:                  # required. the batch's specimens_<this> directory
-  record_treated_as:            # required. complete or incomplete
+  model:                        # required. fbdrp: dnFBDRP; bds: dnBDS
+  occurrences:                  # required. the batch's occurrences_<this> directory
+  reporting_model:              # required. complete | firstlast
   occurrence_ages: reported     # reported | midpoint | drawn. midpoint puts each occurrence at its
                                 # bin's middle, drawn at a uniform draw within it, as an exact age
   age_draws: 1                  # when drawn: this many draws, a chain each, pooled into one
                                 # posterior per replicate, which is PyRate's practice
-  conditioned_on:               # required
+  condition:                    # required. time | sampling | survival | nTaxa
   extant_sampling_probability:  # required
   origin_prior: uniform      # uniform | exponential | none. none supplies no origin at all, so
                              # the oldest birth is the process start under an improper flat
                              # prior and the matrix moves sample it
-  survivors: true
+  unsampled_survivors: true     # below an extant sampling probability of 1, sample which taxa
+                                # survive unseen to the present
   monitor_latents: true          # false writes the rates only, so there are no latent ranks
-  drop_present_only_taxa: false
+  drop_present_only_taxa: false # bds only
 
 mcmc:
   generations:                  # required
   sample_every:                 # required
   seed: 1                       # each replicate's chain is seeded with this plus its number
-  chains_at_once:               # required. replicates analyzed in parallel

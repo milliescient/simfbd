@@ -9,11 +9,11 @@
 ### cannot drift apart.
 ###
 ### Set before sourcing: rep, SKYLINE, COMPLETE, COND, RHO, GENS, PRINTGEN,
-###   SPECIMENS, BATCHDIR, OUTDIR, the GAMMA_ settings, AGE_MIN, AGE_MAX,
+###   OCCURRENCES, BATCHDIR, OUTDIR, the GAMMA_ settings, AGE_MIN, AGE_MAX,
 ###   ORIGIN_PRIOR, MAXFA, SURVIVORS
 
 # TAXA is set when the run treats the occurrence ages some other way than as reported
-if (!exists("TAXA")) TAXA <- BATCHDIR + "/" + SPECIMENS + "/taxa_" + rep + ".tsv"
+if (!exists("TAXA")) TAXA <- BATCHDIR + "/" + OCCURRENCES + "/taxa_" + rep + ".tsv"
 taxa <- readTaxonData(TAXA)
 
 # PyRate's input is fossil occurrences, so a taxon seen only alive at the present is not in it.
@@ -38,7 +38,7 @@ moves = VectorMoves()
 
 # the rate prior and its guards live in one place, so the arms cannot drift
 source(BINDIR + "/rates-prior.Rev")
-if (!exists("REPORT_PROB")) REPORT_PROB <- 1.0
+
 
 
 # uniform is the simulator's own age draw, U(AGE_MIN, AGE_MAX). exponential is PyRate's:
@@ -79,16 +79,7 @@ if (ORIGIN_PRIOR == "none") {
 }
 
 # the reporting model is its own node now, clamped to the observed record
-# REPORT_PROB below 1 means the batch thinned the interior, so the rate is estimated rather
-# than assumed. The extremes are always reported either way, which is what identifies it.
-if (REPORT_PROB < 1.0) {
-    reporting ~ dnBeta(1.0, 1.0)
-    moves.append( mvSlide(reporting, delta=0.1, weight=5) )
-    moves.append( mvBetaProbability(reporting, delta=2.0, weight=5) )
-    rec ~ dnFossilRecord(ranges=bd, reporting=reporting)
-} else {
-    rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
-}
+rec ~ dnFossilRecord(ranges=bd, complete=COMPLETE)
 rec.clamp(taxa)
 
 moves.append( mvMatrixElementScale(bd, lambda=0.01, weight=taxa.size()/10) )

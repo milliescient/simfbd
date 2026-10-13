@@ -62,7 +62,7 @@ the batch's hyperpriors and has no way to set them.
 a-batch/
   config.yml         the generating process and every hyperprior, written by you
   manifest.yml       the record of what was simulated from it, written by simfbd
-  specimens_complete/  specimens_firstlast/
+  occurrences_complete/  occurrences_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
     config.yml       which record to read, and how to analyze it
@@ -94,7 +94,7 @@ What it carries is only what it runs. Analyses of particular batches are in the 
 
 ```sh
 simfbd extend sims/batch1 200                # simulate the batch's first 200 replicates
-simfbd fit sims/batch1/runs/fbdrp_firstlast  # analyze every replicate not yet analyzed
+simfbd fit sims/batch1/runs/fbdrp_firstlast --jobs 6  # analyze every replicate not yet analyzed
 simfbd summarize sims/batch1/runs/fbdrp_firstlast
 simfbd extend sims/batch1 800                # later: 800 more, and the batch has 1000
 simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
@@ -117,30 +117,27 @@ timeline:
 origin_age:
   min: 9
   max: 15
-  origin_lineage_must_be_sampled: false
-rate_priors:
-  gamma:
-    speciation: {shape: 1.1}
-    extinction: {shape: 1.1}
-    fossil_sampling: {shape: 1.5, rate: 1.1}
+rate_prior:
+  speciation: {shape: 1.1}
+  extinction: {shape: 1.1}
+  fossil_sampling: {shape: 1.5, rate: 1.1}
 record:
   occurrence_bins: {width: 3, oldest_edge: 30}
 simulation_limits:
-  max_lineages: 250
+  max_expected_lineages: 250
 ```
 
 ```yaml
 # a run's config.yml
 inference:
-  model: fbdr
-  record_read: complete
-  record_treated_as: complete
-  conditioned_on: time
+  model: fbdrp
+  occurrences: complete
+  reporting_model: complete
+  condition: time
   extant_sampling_probability: 1.0
 mcmc:
   generations: 200000
   sample_every: 1000
-  chains_at_once: 6
 ```
 
 A config holds only what it needs to say. Every setting there is, with what it means and the
@@ -155,8 +152,8 @@ manifest counts them. New replicates cannot be drawn under different settings, s
 come from the batch's own config, and `extend` refuses if that config or the simulator has
 changed since the earlier ones. Those are never redrawn or rewritten: an extension simulates
 only what is missing, appends rows to `true_vals.tsv` and `nums.tsv`, and adds its
-per-replicate files beside the others. Anything that pinned a hash of `true_vals.tsv`, a
-specimens directory or the manifest will see that hash move, because those did grow.
+per-replicate files beside the others. Anything that pinned a hash of `true_vals.tsv`, an
+occurrences directory or the manifest will see that hash move, because those did grow.
 
 ### Checking a batch or a run
 
@@ -169,7 +166,7 @@ inputs:
   config.yml: d26610a2e386               # this run's config
   batch:
     config.yml: 60319e066c3d             # the batch's
-    specimens_complete: 5d415912e147
+    occurrences_complete: 5d415912e147
   simfbd:
     infer-fbdrp.Rev: 12eb464f40e7        # the template simfbd carried
 outputs:
@@ -201,22 +198,22 @@ The rates are drawn from PyRate's prior, an independent gamma for each rate in e
 and analyzed under the same one.
 
 ```yaml
-rate_priors:
-  gamma:
-    speciation: {shape: 1.1}                   # PyRate's -pL
-    extinction: {shape: 1.1}                   # PyRate's -pM
-    fossil_sampling: {shape: 1.5, rate: 1.1}   # PyRate's -pP
+rate_prior:
+  speciation: {shape: 1.1}                   # PyRate's -pL
+  extinction: {shape: 1.1}                   # PyRate's -pM
+  fossil_sampling: {shape: 1.5, rate: 1.1}   # PyRate's -pP
 ```
 
 A speciation or extinction `rate` left out is PyRate's hyperprior, which it uses whenever the
-shift times are fixed: one rate parameter shared by the intervals, Uniform(0, 20). The
+shift times are fixed: one rate parameter shared by the intervals, Uniform(0, 20), whose upper
+bound is `rate_parameter_max`. The
 simulator draws it per replicate and the analysis estimates it, as `gamma_rate_lambda` and
 `gamma_rate_mu`, which are in `true_vals.tsv` and ranked with the rates. Stated, it is fixed.
 The fossil sampling `rate` is always stated. PyRate's hyperprior on it, which `-pP 1.5 0`
 asks for, is not built.
 
 A rate parameter near zero is a speciation rate with no ceiling, so a batch that leaves one
-out wants `simulation_limits.max_lineages`, and its `prior_filter` says how much of the
+out wants `simulation_limits.max_expected_lineages`, and its `prior_filter` says how much of the
 uniform that refused.
 
 Lognormal rates, a random walk or a stationary process through time, the dnFBDSP model with
@@ -226,7 +223,8 @@ branch.
 ## The two ceilings on a simulation
 
 Batches that differ only in the origin prior pool into a range of tree sizes. A deep origin
-wants `simulation_limits.max_lineages`, a ceiling on lineages ever born, because it leaves
+wants `simulation_limits.max_expected_lineages`, a ceiling on the lineages a draw is expected
+to bear, because it leaves
 the oldest interval unbounded and a draw in the upper tail of the speciation rate then never
 finishes simulating.
 
@@ -235,7 +233,7 @@ may do. It counts the waiting times the birth-death simulator draws, across ever
 tries, and refuses the draw when the count is passed. The count follows from the random
 stream, so the same seeds refuse the same draws on any machine and a batch reproduces from
 `seeds.RData`. A tree of n lineages takes about 3n draws, so keep it several times
-`max_lineages`: 100000 cuts a runaway off after roughly 20 seconds on the machine it was
+`max_expected_lineages`: 100000 cuts a runaway off after roughly 20 seconds on the machine it was
 measured on, 200000 after roughly 60. The simulator prints how many draws were refused and
 the most any finished simulation used.
 
@@ -255,9 +253,9 @@ measured rather than assumed.
 
 ## The two key axes
 
-- **`inference.record_read`** = `complete` | `firstlast`: which record the analysis reads. All
-  come from the same simulated history.
-- **`inference.record_treated_as`** = `complete` | `incomplete`: how the model treats it.
+- **`inference.occurrences`** = `complete` | `firstlast`: which occurrences the analysis reads.
+  All come from the same simulated history.
+- **`inference.reporting_model`** = `complete` | `firstlast`: how the model treats them.
 
 Matching them is validation; mismatching them is a misspecification analysis.
 
@@ -275,8 +273,8 @@ record:
     also_offsets: [0, 0.25]          # fractions of a bin
 ```
 
-Each width at each offset is written as `specimens_<model>_w<width>`, with `_o<offset>` when
-the offset is not 0, and a run reads one with `record_read: complete_w3_o0.25`. These grids
+Each width at each offset is written as `occurrences_<model>_w<width>`, with `_o<offset>` when
+the offset is not 0, and a run reads one with `occurrences: complete_w3_o0.25`. These grids
 stop at the present and at `origin_age.max`, so an offset grid has no bin past the origin
 prior. The batch's own grid is written as it always was.
 
@@ -329,6 +327,6 @@ chain may differ, and its summaries agree to within Monte Carlo error.
 
 ## Scope
 
-`inference.model: fbdr` and `bds` are wired. PyRate is not: `pyrate.sh` reads the same
-`taxon/min_age/max_age/status` specimen format the simulator already writes, so reconnecting
+`inference.model: fbdrp` and `bds` are wired. PyRate is not: `pyrate.sh` reads the same
+`taxon/min_age/max_age/status` occurrence format the simulator already writes, so reconnecting
 it needs no separate simulator. The previous TreeSim pipeline is in git history at 8563117.

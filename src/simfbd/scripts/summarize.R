@@ -178,7 +178,7 @@ latent_stats <- function(mf, ids) {
   set.seed(20260719)   # the per-replicate taxon draw, fixed so the figures reproduce
 
   for (rep in ids) {
-    spec <- file.path(sim_dir, mf$specimens, sprintf("taxa_%d.tsv", rep))
+    spec <- file.path(sim_dir, mf$occurrences, sprintf("taxa_%d.tsv", rep))
     rng <- file.path(sim_dir, "true_ranges", sprintf("ranges_%d.tsv", rep))
     log <- file.path(mf$run_dir, "output", sprintf("rep_%d.log", rep))
     if (!all(file.exists(spec, rng, log))) next
@@ -366,7 +366,7 @@ make_figures <- function(run) {
   if (!length(logs)) { cat(run, ": no complete logs, skipping\n"); return(invisible()) }
   ids <- as.integer(gsub("[^0-9]", "", basename(logs)))
 
-  label <- sprintf("%s (batch %s, %s, infer=%s)", basename(run), mf$batch,
+  label <- sprintf("%s (batch %s, %s, reporting=%s)", basename(run), mf$batch,
                    mf$REPORTING, mf$INFER)
   cat(label, ":", length(logs), "complete reps\n")
 

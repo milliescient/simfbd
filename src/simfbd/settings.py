@@ -10,32 +10,28 @@ BATCH_SETTINGS = [
      "piecewise-constant rate intervals"),
     ("INTERVAL_WIDTH", "timeline.interval_width",
      "width of each interval; the oldest runs on to the origin"),
-    ("PRESENT", "timeline.record_stops_at",
-     "the record ends here, not at zero; younger occurrences are discarded"),
+    ("PRESENT", "timeline.present",
+     "the process and its record end here, not at zero; younger occurrences are discarded"),
     ("AGE_MIN", "origin_age.min", "origin ~ Uniform(min, max)"),
     ("AGE_MAX", "origin_age.max", ""),
-    ("ORIGIN_SAMPLED", "origin_age.origin_lineage_must_be_sampled", ""),
-
-    ("GAMMA_L_SHAPE", "rate_priors.gamma.speciation.shape",
+    ("GAMMA_L_SHAPE", "rate_prior.speciation.shape",
      "PyRate's prior: an independent gamma draw per interval"),
-    ("GAMMA_L_RATE", "rate_priors.gamma.speciation.rate",
-     "left out, it is drawn per replicate from Uniform(0, estimated_rate_max) and estimated"),
-    ("GAMMA_M_SHAPE", "rate_priors.gamma.extinction.shape", ""),
-    ("GAMMA_M_RATE", "rate_priors.gamma.extinction.rate", ""),
-    ("GAMMA_P_SHAPE", "rate_priors.gamma.fossil_sampling.shape", ""),
-    ("GAMMA_P_RATE", "rate_priors.gamma.fossil_sampling.rate", "fixed; PyRate's is 1.1"),
-    ("GAMMA_RATE_MAX", "rate_priors.gamma.estimated_rate_max",
-     "upper bound of the uniform a speciation or extinction rate left out is drawn from"),
+    ("GAMMA_L_RATE", "rate_prior.speciation.rate",
+     "left out, it is drawn per replicate from Uniform(0, rate_parameter_max) and estimated"),
+    ("GAMMA_M_SHAPE", "rate_prior.extinction.shape", ""),
+    ("GAMMA_M_RATE", "rate_prior.extinction.rate", ""),
+    ("GAMMA_P_SHAPE", "rate_prior.fossil_sampling.shape", ""),
+    ("GAMMA_P_RATE", "rate_prior.fossil_sampling.rate", "fixed; PyRate's is 1.1"),
+    ("GAMMA_RATE_MAX", "rate_prior.rate_parameter_max",
+     "upper bound of the uniform a speciation or extinction rate parameter left out is drawn from"),
 
     ("RHO", "record.extant_sampling_probability",
      "chance a lineage alive at the present is seen there"),
-    ("REPORT_PROB", "record.interior_reporting",
-     "below 1, interior occurrences are thinned at a rate drawn per replicate from Uniform(0, 1)"),
     ("BIN_WIDTH", "record.occurrence_bins.width",
      "occurrence ages are reported to these bins"),
     ("BIN_MAX", "record.occurrence_bins.oldest_edge", ""),
     ("BIN_WIDTHS", "record.occurrence_bins.also_widths",
-     "the same record on other grids too, as specimens_<model>_w<width>; 0 is the exact ages"),
+     "the same record on other grids too, as occurrences_<model>_w<width>; 0 is the exact ages"),
     ("BIN_OFFSETS", "record.occurrence_bins.also_offsets",
      "each of those shifted by this fraction of a bin as well, as ..._o<offset>"),
 
@@ -45,66 +41,64 @@ BATCH_SETTINGS = [
     ("TAXA_COUNT", "accepted_replicates.taxa_counted",
      "fossil: fossil-sampled taxa only; record: survivors seen at the present too"),
     ("MIN_FOSSIL_TAXA", "accepted_replicates.min_fossil_taxa", ""),
-    ("N_EXTANT", "accepted_replicates.extant_species",
+    ("N_EXTANT", "tree.extant_species",
      "set, trees are drawn backward from exactly this many extant species and the origin is an "
      "output rather than a draw"),
 
-    ("MAX_LINEAGES", "simulation_limits.max_lineages",
-     "a draw expected to exceed this is refused unsimulated, which truncates the prior"),
+    ("MAX_LINEAGES", "simulation_limits.max_expected_lineages",
+     "a draw expected to bear more lineages than this is refused unsimulated, which truncates the prior"),
     ("SIM_MAX_DRAWS", "simulation_limits.max_waiting_time_draws",
      "a draw whose simulation needs more waiting times than this is redrawn"),
 ]
 
 RUN_SETTINGS = [
-    ("MODEL", "inference.model", "fbdr: dnFBDRP; bds: dnBDS"),
-    ("REPORTING", "inference.record_read", "the batch's specimens_<this> directory"),
-    ("INFER", "inference.record_treated_as", "complete or incomplete"),
+    ("MODEL", "inference.model", "fbdrp: dnFBDRP; bds: dnBDS"),
+    ("REPORTING", "inference.occurrences", "the batch's occurrences_<this> directory"),
+    ("INFER", "inference.reporting_model",
+     "complete: every occurrence is reported; firstlast: each taxon's oldest and youngest"),
     ("AGES", "inference.occurrence_ages",
      "reported: the bins as they are; midpoint: each at its bin's middle; drawn: each uniform in its bin"),
     ("AGE_DRAWS", "inference.age_draws",
      "when drawn: this many draws, a chain each, pooled into one posterior per replicate"),
-    ("COND", "inference.conditioned_on", ""),
+    ("COND", "inference.condition", "what the process is conditioned on, as RevBayes names it"),
     ("RHO", "inference.extant_sampling_probability", ""),
     ("ORIGIN_PRIOR", "inference.origin_prior", ""),
-    ("SURVIVORS", "inference.survivors", ""),
+    ("SURVIVORS", "inference.unsampled_survivors",
+     "below an extant sampling probability of 1, sample which taxa survive unseen to the present"),
     ("LATENTS", "inference.monitor_latents",
      "false drops the per-taxon b, d, tau_1 and tau_K from the log, which a rates-only "
      "comparison never reads and which costs 63 MB a replicate on a thousand ranges"),
-    ("DROP_PRESENT_ONLY", "inference.drop_present_only_taxa", ""),
+    ("DROP_PRESENT_ONLY", "inference.drop_present_only_taxa", "bds only"),
     ("GENS", "mcmc.generations", ""),
     ("PRINTGEN", "mcmc.sample_every", ""),
     ("SEED", "mcmc.seed", "each replicate's chain is seeded with this plus its number"),
-    ("NCORES", "mcmc.chains_at_once", "replicates analyzed in parallel"),
 ]
 
 # what a manifest records beyond settings: the name a script asks for, and where it sits
 BATCH_RECORD = {
     "kind": "kind", "batch": "batch", "config_hash": "config_hash",
     "true_vals_order": "true_vals_order", "NREPS": "replicates",
-    "filtered": "prior_filter.refused", "filtered_of": "prior_filter.of",
+    "filtered": "prior_filter.refused", "filtered_of": "prior_filter.draws",
     "filtered_frac": "prior_filter.fraction",
 }
 RUN_RECORD = {
     "kind": "kind", "run": "run", "batch": "batch",
     "batch_config_hash": "batch_config_hash", "config_hash": "config_hash",
-    "true_vals_order": "true_vals_order", "NREPS": "replicates", "specimens": "specimens",
-    "infer_script_hash": "toolchain.infer_script_hash",
-    "rb_path": "toolchain.rb_path", "rb_md5": "toolchain.rb_md5",
-    "rb_describe": "toolchain.rb_describe",
-    # the names a manifest.tsv used for these two
-    "survivors": "inference.survivors", "drop_present_only": "inference.drop_present_only_taxa",
+    "true_vals_order": "true_vals_order", "NREPS": "replicates", "occurrences": "occurrences",
+    "rb_md5": "rb_md5",
 }
 
 
 # what a batch cannot be simulated without, and a run cannot be analyzed without
 BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "GAMMA_L_SHAPE", "GAMMA_M_SHAPE", "GAMMA_P_SHAPE",
-                  "GAMMA_P_RATE", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "ORIGIN_SAMPLED"]
-RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN", "NCORES"]
+                  "GAMMA_P_RATE", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX"]
+RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN"]
 # The value a setting takes when a config leaves it out is in defaults/batch.yml and
 # defaults/run.yml, not here.
 
 # a setting that takes one of a few words
-CHOICES = {"MODEL": ("fbdr", "bds"), "INFER": ("complete", "incomplete"),
+CHOICES = {"MODEL": ("fbdrp", "bds"), "INFER": ("complete", "firstlast"),
+           "COND": ("time", "sampling", "survival", "nTaxa"),
            "TAXA_COUNT": ("fossil", "record"),
            "ORIGIN_PRIOR": ("uniform", "exponential", "none"),
            "AGES": ("reported", "midpoint", "drawn")}

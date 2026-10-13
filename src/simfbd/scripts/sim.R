@@ -182,10 +182,6 @@ RHO <- cfg_opt("RHO", 1)                     # chance an extant lineage is seen 
 # The record stops here rather than at zero. Occurrences younger than PRESENT are discarded
 # and a lineage still alive there is a boundary survivor, which rho then reports or misses.
 PRESENT <- cfg_opt("PRESENT", 0)
-# Chance a sampled interior occurrence is reported. 1 emits no thinned record, since it
-# would duplicate the complete one. The extremes are always reported, which is what makes
-# the rate estimable rather than confounded with psi.
-REPORT_PROB <- cfg_opt("REPORT_PROB", 1)
 if (PRESENT > 0 && abs(PRESENT %% BIN_WIDTH) > 1e-9) {
   warning(sprintf("PRESENT %g is off the BIN_WIDTH %g grid, so a bin straddles it",
                   PRESENT, BIN_WIDTH), call. = FALSE, immediate. = TRUE)
@@ -203,7 +199,7 @@ if (!TAXA_COUNT %in% c("fossil", "record")) stop("TAXA_COUNT must be fossil or r
 MIN_FOSSIL_TAXA <- as.integer(cfg_opt("MIN_FOSSIL_TAXA", 0))
 
 # Set, trees are drawn backward from exactly this many extant species and the origin is an
-# output, so AGE_MIN and AGE_MAX are ignored. Rejection on extant count cannot reach the
+# output. AGE_MAX still bounds an offset grid's bins, and both bound a run's uniform origin prior. Rejection on extant count cannot reach the
 # near-critical regime: at turnover 0.9 it needs over 480s a tree against 0.2s here.
 N_EXTANT <- suppressWarnings(as.integer(cfg_opt("N_EXTANT", NA)))
 BACKWARD <- !is.na(N_EXTANT)
@@ -216,16 +212,12 @@ BACKWARD <- !is.na(N_EXTANT)
 cov_breaks <- PRESENT + INTERVAL_WIDTH * seq_len(NINTERVALS - 1)
 cov_bins <- seq(0, BIN_MAX, BIN_WIDTH)
 
-# Truth, named, in one place. It used to be assembled by positional appends, which put
-# report_prob between two hyperparameters when both were on, and read the hyperparameters out
-# of the global environment, so a replicate accepted without a rejection recorded the
-# previous replicate's values. Names travel with the values now, so neither can recur.
+# Truth, named, in one place, so the names travel with the values.
 truth_of <- function(th, lambda, mu, psi, age) {
   K <- length(lambda)
   v <- c(setNames(rev(lambda), paste0("lambda", seq_len(K))),
          setNames(rev(mu),     paste0("mu", seq_len(K))),
          setNames(rev(psi),    paste0("psi", seq_len(K))))
-  if (REPORT_PROB < 1) v <- c(v, report_prob = th$report_prob)
   v <- c(v, age = age)
   if (is.na(GAMMA_L_RATE)) v <- c(v, gamma_rate_lambda = th$gamma_rate_lambda)
   if (is.na(GAMMA_M_RATE)) v <- c(v, gamma_rate_mu = th$gamma_rate_mu)
@@ -241,8 +233,7 @@ draw_theta <- function() {
        lambda = rgamma(NINTERVALS, GAMMA_L_SHAPE, rate = b_lambda),
        mu     = rgamma(NINTERVALS, GAMMA_M_SHAPE, rate = b_mu),
        psi    = rgamma(NINTERVALS, GAMMA_P_SHAPE, rate = GAMMA_P_RATE),
-       gamma_rate_lambda = b_lambda, gamma_rate_mu = b_mu,
-       report_prob = if (REPORT_PROB < 1) runif(1) else 1)
+       gamma_rate_lambda = b_lambda, gamma_rate_mu = b_mu)
 }
 
 # Expected lineages ever born, 1 + integral of lambda(t)E[N(t)]: E[N] grows as exp(lambda-mu)
@@ -367,10 +358,9 @@ backward_sim <- function(n_extant, lambda, mu, psi, breaks, bins) {
 # Reporting models, by the sim's model number. An SBC rep emits both from one
 # simulated record, so they share a tree, a fossil set and a timeline.
 sbc_models <- c(complete = 1, firstlast = 2)
-if (REPORT_PROB < 1) sbc_models <- c(sbc_models, thinned = 3)
 
 # Which of a species' occurrences get reported, under each model.
-retain_occs <- function(occs, model, rp) {
+retain_occs <- function(occs, model) {
   # complete: the whole record
   if (model == 1) return(occs)
 
@@ -382,21 +372,16 @@ retain_occs <- function(occs, model, rp) {
     if (nrow(occs) > 1) return(occs[c(1, nrow(occs)), ])
     return(occs[1, ])
   }
-  # thinned (model 3): both extremes always, each interior kept with probability rp
-  if (nrow(occs) <= 2) return(occs)
-  interior <- occs[-c(1, nrow(occs)), , drop = FALSE]
-  keep <- runif(nrow(interior)) < rp
-  rbind(occs[1, ], interior[keep, , drop = FALSE], occs[nrow(occs), ])
+  occs
 }
 
 ###
 # write auxiliary simulation functions
 
 # simulate one rep
-simulate_rep <- function(rates, age, shifts, report_prob = 1,
+simulate_rep <- function(rates, age, shifts,
                          model, unc, extant_singletons,
-                         sbc = FALSE, origin_sampled = FALSE,
-                         theta = NULL) {
+                         sbc = FALSE, theta = NULL) {
   th <- theta
   ## set parameters
   # number of initial species
@@ -441,13 +426,11 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 
   # Every rejection path redraws theta jointly, so none of them can diverge. Deriving every
   # local from the one draw in one place is what keeps a redraw from leaving part of the old
-  # one behind: report_prob used to survive a rejection, which made the retained pair a
-  # partial redraw rather than a draw from the joint.
+  # one behind.
   use_theta <- function(t) {
     th <<- t
     age <<- t$age; tMax <<- t$age
     lambda <<- t$lambda; mu <<- t$mu; psi <<- t$psi
-    report_prob <<- t$report_prob
     lShifts <<- mShifts <<- pShifts <<- c(0, t$age - rev(cov_breaks))
     bins <<- cov_bins
   }
@@ -546,7 +529,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       
       # report this species' record under each model
       for (m in seq_along(models)) {
-        specs[[m]] <- rbind(specs[[m]], retain_occs(occs, models[m], report_prob))
+        specs[[m]] <- rbind(specs[[m]], retain_occs(occs, models[m]))
       }
 
       # get true range
@@ -580,7 +563,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
     }
 
     # the reporting models keep the same species, so any of them fixes the taxon set
-    specimens <- specs[[1]]
+    occurrences <- specs[[1]]
     
     # name columns for ranges
     colnames(ranges) <- c("taxon", "first_age", "last_age")
@@ -591,27 +574,23 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
       # condition="sampling". The previous 5-50 window conditions on the number
       # of sampled species, which no dnFBDRMatrix condition can correct for and
       # which biases the estimated rates (selecting for high-diversification trees).
-      # t1 is the origin lineage (paleobuddy species 1 starts at tMax). Requiring it makes the oldest SAMPLED birth equal age, which is
-      # what the analysis puts its origin prior on. Rejection redraws theta below, so conditioning
-      # on a function of the reported record leaves the posterior alone.
-      # specimens holds only fossil-sampled taxa here; the extant singletons are added after this
-      # loop, and rho = 1 means every extant lineage is sampled, so t1 counts either way
-      ntax <- length(unique(specimens$taxon))
+      # Rejection redraws theta below, so conditioning on a function of the reported record
+      # leaves the posterior alone. occurrences holds only fossil-sampled taxa here; the extant
+      # singletons are added after this loop.
+      ntax <- length(unique(occurrences$taxon))
       if (TAXA_COUNT == "record")
-        ntax <- length(union(unique(specimens$taxon), sprintf("t%d", which(sim$EXTANT & rho_seen))))
+        ntax <- length(union(unique(occurrences$taxon), sprintf("t%d", which(sim$EXTANT & rho_seen))))
       cond <- ntax >= MIN_TAXA && ntax <= MAX_TAXA &&
-              length(unique(specimens$taxon)) >= MIN_FOSSIL_TAXA &&
-              ( origin_sampled == FALSE ||
-                "t1" %in% specimens$taxon || isTRUE(sim$EXTANT[1]) )
+              length(unique(occurrences$taxon)) >= MIN_FOSSIL_TAXA
 
       # if cond is false, redraw everything
       if (!cond) redraw()
     }
     else {
-      cond <- length(unique(specimens$taxon)) > 10 &&
-        length(unique(specimens$taxon)) < 500 &&
-        length(unique(specimens$taxon)) / length(sim$TS) < 0.9 &&
-        length(unique(specimens$taxon)) / length(sim$TS) > 0.2
+      cond <- length(unique(occurrences$taxon)) > 10 &&
+        length(unique(occurrences$taxon)) < 500 &&
+        length(unique(occurrences$taxon)) / length(sim$TS) < 0.9 &&
+        length(unique(occurrences$taxon)) / length(sim$TS) > 0.2
     }
   }
 
@@ -645,7 +624,7 @@ simulate_rep <- function(rates, age, shifts, report_prob = 1,
 # simulate one set
 simulate_set <- function(n_key, reps, rates, age, base_dir,
                          model = 2, unc = FALSE, extant_singletons = FALSE,
-                         diff_bins = 0, sbc = FALSE, origin_sampled = FALSE,
+                         diff_bins = 0, sbc = FALSE,
                          first = 1) {
   # outside the SBC sets, rates are prepared as normal
   if (!sbc) {
@@ -751,11 +730,9 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
     
     # run sim
     sim_rep <- simulate_rep(rates, age, shifts,
-                            report_prob = if (sbc) th$report_prob else 1,
                             model = model, unc = unc,
                             extant_singletons = extant_singletons,
                             sbc = sbc,
-                            origin_sampled = origin_sampled,
                             theta = if (sbc) th else NULL)
     
     # an SBC set shares one timeline and adds to true_vals
@@ -772,27 +749,27 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
       true_vals[[rep]] <- sim_rep$TV
     }
     
-    # get sim, specimens and ranges
+    # get sim, occurrences and ranges
     sim <- sim_rep$SIM
     specs <- sim_rep$SPECIMENS
-    specimens <- specs[[1]]
+    occurrences <- specs[[1]]
     ranges <- sim_rep$RANGES
 
     # calculate numbers of interest
     n_sp <- c(n_sp, length(sim$TS))
-    n_sampled <- c(n_sampled, length(unique(specimens$taxon)))
+    n_sampled <- c(n_sampled, length(unique(occurrences$taxon)))
     perc_sampled <- c(perc_sampled, tail(n_sampled, 1) / tail(n_sp, 1))
     
-    # save specimens. An SBC rep reports the same record under every model, so
+    # save occurrences. An SBC rep reports the same record under every model, so
     # each gets its own directory alongside the one shared timeline and true values.
     for (m in seq_along(specs)) {
-      spec_dir <- if (sbc) paste0(base_dir, "/specimens_", names(specs)[m]) else
-                                paste0(base_dir, "/specimens")
+      spec_dir <- if (sbc) paste0(base_dir, "/occurrences_", names(specs)[m]) else
+                                paste0(base_dir, "/occurrences")
       smart_dir_create(spec_dir)
       write.table(specs[[m]][, 1:4], paste0(spec_dir, "/taxa_", rep, ".tsv"),
                   col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
 
-      # and the same rows on each other grid, as specimens_<model>_w<width>[_o<offset>]
+      # and the same rows on each other grid, as occurrences_<model>_w<width>[_o<offset>]
       if (sbc) for (g in seq_len(nrow(more_grids))) {
         s <- specs[[m]]
         # a survivor seen at the present is a status, not an occurrence, and has no bin
@@ -876,11 +853,11 @@ simulate_set <- function(n_key, reps, rates, age, base_dir,
 
 
 # create function for simulating an SBC set
-simulate_batch <- function(reps, reps_dir, origin_sampled = FALSE, first = 1) {
+simulate_batch <- function(reps, reps_dir, first = 1) {
   # run simulation set
   nums <- simulate_set("cov", reps, NULL, NULL, reps_dir,
                        2, FALSE, FALSE, 0, sbc = TRUE,
-                       origin_sampled = origin_sampled, first = first)
+                       first = first)
   
   # make nums a data frame
   nums <- as.data.frame(nums)
@@ -897,7 +874,7 @@ simulate_batch <- function(reps, reps_dir, origin_sampled = FALSE, first = 1) {
 # run simulations
 #
 # One pass reports each simulated record under every reporting model, so this fills
-# specimens_{complete,firstlast}/ alongside the one shared timeline,
+# occurrences_{complete,firstlast}/ alongside the one shared timeline,
 # true_vals.tsv, true_ranges/ and sim_list.RData.
 #
 # seeds.RData is reused when present, so reruns of a batch stay comparable.
@@ -922,9 +899,7 @@ if (!exists("sim_functions_only")) {
       stop("true_vals.tsv holds ", had, " replicates, not the ", first - 1, " the manifest counts")
   }
   cat("simulating reps", first, "to", reps, "->", reps_dir, "\n")
-  nums <- simulate_batch(reps, reps_dir,
-                         origin_sampled = Sys.getenv("ORIGIN_SAMPLED") == "true",
-                         first = first)
+  nums <- simulate_batch(reps, reps_dir, first = first)
 
   write.table(nums, paste0(reps_dir, "nums.tsv"), append = first > 1,
               row.names = FALSE, col.names = first == 1, quote = FALSE, sep = "\t")

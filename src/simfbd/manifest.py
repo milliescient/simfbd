@@ -67,7 +67,7 @@ def digest(path):
 # what a simulation leaves in a batch for something else to read
 def batch_outputs(d):
     names = ["true_vals.tsv", "nums.tsv", "times", "true_ranges"]
-    names += sorted(n for n in os.listdir(d) if n.startswith("specimens_"))
+    names += sorted(n for n in os.listdir(d) if n.startswith("occurrences_"))
     return [n for n in names if os.path.exists(os.path.join(d, n))]
 
 
@@ -139,9 +139,8 @@ def flat(d):
     if run:
         # a run sits at <batch>/runs/<name>, wherever the batch is, so this is never recorded
         out["batch_dir"] = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
-        tc = doc.get("toolchain") or {}
-        out["simfbd_commit"] = shown(used(doc.get("uses"), "simfbd") or tc.get("simfbd_commit"))
-        out["rb_commit"] = shown(tc.get("rb_describe") or tc.get("rb_commit"))
+        out["simfbd_commit"] = shown(used(doc.get("uses"), "simfbd"))
+        out["rb_commit"] = shown(used(doc.get("uses"), "rb"))
         given = doc.get("inputs") or {}
         if isinstance(given.get("batch"), dict):
             out["config_hash"] = shown(given.get("config.yml"))
@@ -195,11 +194,11 @@ def write_batch(d, f):
     _, old = find(d)
     first, last = int(f["first"]), int(f["last"])
     simulated = list((old or {}).get("simulated") or [])
-    have = int(str(simulated[-1]["replicates"]).split("-")[-1]) if simulated else 0
+    have = int(str(simulated[-1]["added"]).split("-")[-1]) if simulated else 0
     if first != have + 1:
         raise SystemExit(f"manifest.py: {d} holds replicates to {have}, "
                          f"so the next cannot start at {first}")
-    entry = {"replicates": f"{first}-{last}",
+    entry = {"added": f"{first}-{last}",
              "uses": list(f.get("uses") or [f"simfbd@{f['simfbd_commit']}"])}
     if "inputs" in f:
         entry["inputs"] = f["inputs"]
@@ -226,7 +225,7 @@ def write_batch(d, f):
     ]
     for s in simulated:
         uses = s.get("uses") or [f"simfbd@{s['simfbd_commit']}"]
-        lines += [f"  - replicates: {text(s['replicates'])}",
+        lines += [f"  - added: {text(s['added'])}",
                   f"    uses: [{', '.join(text(u) for u in uses)}]"]
         if s.get("inputs"):
             lines.append("    inputs:")
@@ -242,10 +241,10 @@ def write_batch(d, f):
         with open(counts) as fh:
             s = {k.replace("screened", "filtered"): v
                  for k, v in (l.rstrip("\n").split("\t", 1) for l in fh if "\t" in l)}
-        lines += ["# draws refused before simulating by simulation_limits.max_lineages, measured",
+        lines += ["# draws refused before simulating by simulation_limits.max_expected_lineages, measured",
                   "prior_filter:",
                   f"  refused: {s['filtered']}",
-                  f"  of: {s['filtered_of']}",
+                  f"  draws: {s['filtered_of']}",
                   f"  fraction: {s['filtered_frac']}"]
     save(d, lines)
 
@@ -267,31 +266,24 @@ def write_run(d, f):
     lines += [
         f"true_vals_order: {text(batch['true_vals_order'])}",
         f"replicates: {f['replicates']}            # in the batch when this last ran",
-        f"specimens: {text(f['specimens'])}",
+        f"occurrences: {text(f['occurrences'])}",
         "",
-        "# the code that ran, as name@version; rb's is the commit its binary was built from",
+        "# the code that ran, as name@version. rb's is the commit its binary was built from, which",
+        "# can outlive a rebuild, so the binary's own md5 is beside it",
         f"uses: [{text('simfbd@' + f['simfbd_commit'])}, "
         f"{text('rb@' + f['rb_commit'].rsplit('-g', 1)[-1])}]",
-        "# what it read: its own config, the batch's config and specimens, and the template simfbd",
+        f"rb_md5: {text(f['rb_md5'])}",
+        "# what it read: its own config, the batch's config and occurrences, and the template simfbd",
         "# carries. And what it wrote. simfbd status <run> checks them.",
         "inputs:",
     ]
     if "inputs" in f:
         lines += hash_lines(f["inputs"], "  ")
     else:
-        lines.append(f"  {f['specimens']}: {text(digest(os.path.join(f['batch_dir'], f['specimens'])))}")
+        lines.append(f"  {f['occurrences']}: {text(digest(os.path.join(f['batch_dir'], f['occurrences'])))}")
     lines += [
         "outputs:",
         f"  output: {text(digest(os.path.join(d, 'output')))}",
-        "",
-        "toolchain:",
-    ]
-    if "inputs" not in f:
-        lines.append(f"  infer_script_hash: {text(f['infer_script_hash'])}")
-    lines += [
-        f"  rb_path: {text(f['rb_path'])}",
-        f"  rb_md5: {text(f['rb_md5'])}",
-        f"  rb_describe: {text(f['rb_commit'])}",
     ]
     save(d, lines)
 

@@ -1,19 +1,19 @@
 #!/bin/bash
 # PyRate inference for one replicate. Reads the SAME model-agnostic simulator
-# output the rb methods use (DATADIR/specimens/taxa_<rep>.tsv), converts it to
+# output the rb methods use (DATADIR/occurrences_complete/taxa_<rep>.tsv), converts it to
 # PyRate input format (the only PyRate-specific step — it lives here, not in
 # sim.r), runs PyRate over the same interval timeline, writes OUTDIR/pyrate_<rep>.log.
 #
 # PYRATE_HOME defaults to the checkout under /research/phyloworks/tools, which has its
 # own venv: PyRate 3.1.3 pins numpy < 2 and the shared one is on 2.x.
 #
-# args: <rep> <DATADIR> <OUTDIR> <NINTERVALS> <INTERVAL_WIDTH> [SPECIMENS]
+# args: <rep> <DATADIR> <OUTDIR> <NINTERVALS> <INTERVAL_WIDTH> [OCCURRENCES]
 set -u
-rep="$1"; DATADIR="$2"; OUTDIR="$3"; NINTERVALS="$4"; IW="$5"; SPECIMENS="${6:-specimens_complete}"
+rep="$1"; DATADIR="$2"; OUTDIR="$3"; NINTERVALS="$4"; IW="$5"; OCCURRENCES="${6:-occurrences_complete}"
 PYRATE_HOME="${PYRATE_HOME:-/research/phyloworks/tools/PyRate}"
 PYRATE_PY="${PYRATE_PY:-/research/phyloworks/tools/pyrate-venv/bin/python}"
 RSCRIPT="${RSCRIPT:-/research/phyloworks/mm/root/envs/fsim/bin/Rscript}"
-taxa="$DATADIR/$SPECIMENS/taxa_${rep}.tsv"
+taxa="$DATADIR/$OCCURRENCES/taxa_${rep}.tsv"
 [ -f "$taxa" ] || { echo "no $taxa"; exit 1; }
 work="$OUTDIR/pyrate_work_$rep"; mkdir -p "$work"
 
