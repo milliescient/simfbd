@@ -1,7 +1,7 @@
 """Only here to write down the commit a copy is built from.
 
-Run from a checkout, simfbd asks git which commit it is. An installed copy has no checkout to
-ask, so the commit is written into the package as it is built, and `simfbd --version` says
+Run from a checkout, simfbdr asks git which commit it is. An installed copy has no checkout to
+ask, so the commit is written into the package as it is built, and `simfbdr --version` says
 the same word either way.
 """
 import subprocess
@@ -18,7 +18,7 @@ class build_with_commit(build_py):
         r = subprocess.run(["git", "-C", str(here), "describe", "--always", "--dirty", "--tags"],
                            capture_output=True, text=True)
         if r.returncode == 0 and not self.editable_mode:
-            out = Path(self.build_lib) / "simfbd" / "_commit.txt"
+            out = Path(self.build_lib) / "simfbdr" / "_commit.txt"
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(r.stdout.strip() + "\n")
 

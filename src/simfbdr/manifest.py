@@ -14,8 +14,8 @@ configs were YAML has its settings in its manifest, as a manifest.tsv of key<TAB
 or an earlier manifest.yml, and flat() reads those too, so a script never has to know which
 kind it was handed.
 
-    python -m simfbd.manifest get  DIR KEY      # one value
-    python -m simfbd.manifest flat DIR          # every value, as key<TAB>value lines
+    python -m simfbdr.manifest get  DIR KEY      # one value
+    python -m simfbdr.manifest flat DIR          # every value, as key<TAB>value lines
 """
 import hashlib
 import os
@@ -71,12 +71,20 @@ def batch_outputs(d):
     return [n for n in names if os.path.exists(os.path.join(d, n))]
 
 
+FORMERLY = {"simfbdr": "simfbd"}          # what a record written before the rename says
+
+
 def used(uses, name):
     """The version of one thing in a `uses` list of name@version."""
     for u in uses or []:
-        if str(u).split("@", 1)[0] == name:
+        if str(u).split("@", 1)[0] in (name, FORMERLY.get(name)):
             return str(u).split("@", 1)[1]
     return None
+
+
+def carried(given):
+    """The scripts of its own a batch or a run read, under either name."""
+    return given.get("simfbdr") or given.get("simfbd") or {}
 
 
 def dig(doc, path):
@@ -134,18 +142,18 @@ def flat(d):
         given = last.get("inputs") or {}
         if given:
             out["config_hash"] = shown(given.get("config.yml"))
-        out["sim_script_hash"] = shown((given.get("simfbd") or {}).get("sim.R") or last.get("sim_script_hash"))
-        out["simfbd_commit"] = shown(used(last.get("uses"), "simfbd") or last.get("simfbd_commit"))
+        out["sim_script_hash"] = shown(carried(given).get("sim.R") or last.get("sim_script_hash"))
+        out["simfbdr_commit"] = shown(used(last.get("uses"), "simfbdr") or (last.get("simfbdr_commit") or last.get("simfbd_commit")))
     if run:
         # a run sits at <batch>/runs/<name>, wherever the batch is, so this is never recorded
         out["batch_dir"] = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
-        out["simfbd_commit"] = shown(used(doc.get("uses"), "simfbd"))
+        out["simfbdr_commit"] = shown(used(doc.get("uses"), "simfbdr"))
         out["rb_commit"] = shown(used(doc.get("uses"), "rb"))
         given = doc.get("inputs") or {}
         if isinstance(given.get("batch"), dict):
             out["config_hash"] = shown(given.get("config.yml"))
             out["batch_config_hash"] = shown(given["batch"].get("config.yml"))
-            out["infer_script_hash"] = shown(next(iter((given.get("simfbd") or {}).values()), None))
+            out["infer_script_hash"] = shown(next(iter(carried(given).values()), None))
     batch_dir = out["batch_dir"] if run else d
     if os.path.exists(os.path.join(batch_dir, "config.yml")):
         # the settings are in the configs. A batch's are given as it set them, and a run's
@@ -199,7 +207,7 @@ def write_batch(d, f):
         raise SystemExit(f"manifest.py: {d} holds replicates to {have}, "
                          f"so the next cannot start at {first}")
     entry = {"added": f"{first}-{last}",
-             "uses": list(f.get("uses") or [f"simfbd@{f['simfbd_commit']}"])}
+             "uses": list(f.get("uses") or [f"simfbdr@{f['simfbdr_commit']}"])}
     if "inputs" in f:
         entry["inputs"] = f["inputs"]
     else:
@@ -207,7 +215,7 @@ def write_batch(d, f):
     entry["outputs"] = {n: digest(os.path.join(d, n)) for n in batch_outputs(d)}
     simulated.append(entry)
     lines = [
-        "# Written by simfbd: the record of what was simulated from config.yml. Do not edit it.",
+        "# Written by simfbdr: the record of what was simulated from config.yml. Do not edit it.",
         "kind: batch",
         f"batch: {text(os.path.basename(os.path.normpath(d)))}",
     ]
@@ -218,13 +226,13 @@ def write_batch(d, f):
         "true_vals_order: youngest_first",
         "",
         f"replicates: {last}",
-        "# One entry per simfbd extend: what ran, what it read and what the batch held after it.",
+        "# One entry per simfbdr extend: what ran, what it read and what the batch held after it.",
         "# Only the last entry can still be checked, since the next one changes the files:",
-        "# simfbd status <batch>",
+        "# simfbdr status <batch>",
         "simulated:",
     ]
     for s in simulated:
-        uses = s.get("uses") or [f"simfbd@{s['simfbd_commit']}"]
+        uses = s.get("uses") or [f"simfbdr@{(s.get('simfbdr_commit') or s['simfbd_commit'])}"]
         lines += [f"  - added: {text(s['added'])}",
                   f"    uses: [{', '.join(text(u) for u in uses)}]"]
         if s.get("inputs"):
@@ -255,7 +263,7 @@ def write_run(d, f):
         raise SystemExit(f"manifest.py: {f['batch_dir']} has no manifest.yml")
     sim = flat(f["batch_dir"])
     lines = [
-        "# Written by simfbd: the record of what was analyzed from config.yml. Do not edit it.",
+        "# Written by simfbdr: the record of what was analyzed from config.yml. Do not edit it.",
         "kind: run",
         f"run: {text(os.path.basename(os.path.normpath(d)))}",
         f"batch: {text(batch['batch'])}",
@@ -270,11 +278,11 @@ def write_run(d, f):
         "",
         "# the code that ran, as name@version. rb's is the commit its binary was built from, which",
         "# can outlive a rebuild, so the binary's own md5 is beside it",
-        f"uses: [{text('simfbd@' + f['simfbd_commit'])}, "
+        f"uses: [{text('simfbdr@' + f['simfbdr_commit'])}, "
         f"{text('rb@' + f['rb_commit'].rsplit('-g', 1)[-1])}]",
         f"rb_md5: {text(f['rb_md5'])}",
-        "# what it read: its own config, the batch's config and occurrences, and the template simfbd",
-        "# carries. And what it wrote. simfbd status <run> checks them.",
+        "# what it read: its own config, the batch's config and occurrences, and the template simfbdr",
+        "# carries. And what it wrote. simfbdr status <run> checks them.",
         "inputs:",
     ]
     if "inputs" in f:
@@ -329,14 +337,14 @@ def status(d):
     if one_hash:
         compare(d, {"config.yml": given["config.yml"]})
         compare(batch_dir, given.get("batch"), "batch: ")
-        # what simfbd carries is named by its commit. A script that has since changed is not a
+        # what simfbdr carries is named by its commit. A script that has since changed is not a
         # fault in the batch, so it is said and not counted.
         from . import tools
-        for name, want in (given.get("simfbd") or {}).items():
+        for name, want in carried(given).items():
             at = tools.SCRIPTS / name
             got = digest(at) if at.exists() else "gone"
-            rows.append(("current" if got == want else "differs", f"simfbd: {name}",
-                         "" if got == want else f"this simfbd's is {got}; it ran with {want}"))
+            rows.append(("current" if got == want else "differs", f"simfbdr: {name}",
+                         "" if got == want else f"this simfbdr's is {got}; it ran with {want}"))
     else:
         name = "config.yml" if os.path.exists(os.path.join(d, "config.yml")) else "config.sh"
         cfg = os.path.join(d, name)

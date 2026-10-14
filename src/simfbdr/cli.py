@@ -1,17 +1,17 @@
-"""The simfbd command.
+"""The simfbdr command.
 
-    simfbd extend <batch> <n>          add n replicates to a batch, or give a new one its first
-    simfbd analyze <batch>/runs/<name> analyze every replicate of the batch not yet analyzed
-    simfbd status <batch or run> ...   does it still match its manifest
-    simfbd summarize <run> ...         SBC ranks, coverage and diagnostics for a run
-    simfbd ranks <run>                 mean rank per parameter
-    simfbd config default [batch|run]  every setting a config can hold, with its default
-    simfbd script <name> [args]        run one of the other scripts simfbd carries
-    simfbd path <name>                 where one of those scripts is, for something that sources it
-    simfbd doctor                      the tools this machine would run, and whether they are there
-    simfbd uses [name]                 what it would run, as name@version, or one version
-    simfbd manifest flat|get <dir>     a batch's or a run's settings and record, for a script
-    simfbd --version                   the commit of this code, -dirty if it has uncommitted changes
+    simfbdr extend <batch> <n>          add n replicates to a batch, or give a new one its first
+    simfbdr analyze <batch>/runs/<name> analyze every replicate of the batch not yet analyzed
+    simfbdr status <batch or run> ...   does it still match its manifest
+    simfbdr summarize <run> ...         SBC ranks, coverage and diagnostics for a run
+    simfbdr ranks <run>                 mean rank per parameter
+    simfbdr config default [batch|run]  every setting a config can hold, with its default
+    simfbdr script <name> [args]        run one of the other scripts simfbdr carries
+    simfbdr path <name>                 where one of those scripts is, for something that sources it
+    simfbdr doctor                      the tools this machine would run, and whether they are there
+    simfbdr uses [name]                 what it would run, as name@version, or one version
+    simfbdr manifest flat|get <dir>     a batch's or a run's settings and record, for a script
+    simfbdr --version                   the commit of this code, -dirty if it has uncommitted changes
 
 A batch is a directory holding a config.yml, anywhere on disk, and a run is a directory
 under its runs/ holding one too.
@@ -45,7 +45,7 @@ def run_script(name, args):
     path = tools.script(name)
     how = {".R": [tools.rscript()], ".py": [sys.executable], ".sh": ["bash"]}.get(path.suffix)
     if how is None:
-        raise SystemExit(f"simfbd: {name} is not something to run; simfbd path {name} says where it is")
+        raise SystemExit(f"simfbdr: {name} is not something to run; simfbdr path {name} says where it is")
     raise SystemExit(subprocess.run([*how, str(path), *args], env=tools.environment()).returncode)
 
 
@@ -56,7 +56,7 @@ def cmd_config(a):
 
 def cmd_doctor(a):
     import shutil
-    print(f"simfbd     {tools.version()}   {tools.home()}")
+    print(f"simfbdr     {tools.version()}   {tools.home()}")
     ok = True
     for label, at, rule in tools.found():
         ok = ok and not at.startswith("NOT FOUND")
@@ -77,8 +77,21 @@ def cmd_doctor(a):
     raise SystemExit(0 if ok and "NOT INSTALLED" not in r.stdout else 1)
 
 
+def before_the_rename(argv):
+    """A notebook runs a step against a checkout of the commit it states, named by $SIMFBDR.
+    A commit from before the rename has the package as simfbd, and that is what runs."""
+    at = os.environ.get("SIMFBDR") or ""
+    src = os.path.join(at, "src")
+    if not os.path.isfile(os.path.join(src, "simfbd", "cli.py")) or os.path.isdir(os.path.join(src, "simfbdr")):
+        return
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(filter(None, [src, os.environ.get("PYTHONPATH")])))
+    args = sys.argv[1:] if argv is None else list(argv)
+    raise SystemExit(subprocess.run([sys.executable, "-m", "simfbd", *args], env=env).returncode)
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="simfbd", description=__doc__,
+    before_the_rename(argv)
+    ap = argparse.ArgumentParser(prog="simfbdr", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="store_true")
     ap.add_argument("--home", action="store_true", help="where this code is")
@@ -104,13 +117,13 @@ def main(argv=None):
     p = sub.add_parser("config", help="the settings a config can hold")
     p.add_argument("what", choices=["default"])
     p.add_argument("arg", nargs="?")
-    p = sub.add_parser("script", help="run one of the other scripts simfbd carries")
+    p = sub.add_parser("script", help="run one of the other scripts simfbdr carries")
     p.add_argument("name")
     p.add_argument("args", nargs=argparse.REMAINDER)
     p = sub.add_parser("path", help="where one of those scripts is")
     p.add_argument("name")
     sub.add_parser("doctor", help="the tools this machine would run")
-    p = sub.add_parser("uses", help="what simfbd would run, as name@version")
+    p = sub.add_parser("uses", help="what simfbdr would run, as name@version")
     p.add_argument("name", nargs="?")
     p = sub.add_parser("manifest", help="a batch's or a run's settings and record, for a script")
     p.add_argument("rest", nargs=argparse.REMAINDER)
@@ -143,7 +156,7 @@ def main(argv=None):
         print(tools.version_of(a.name) if a.name else "\n".join(tools.uses(tools.KNOWN)))
     elif a.cmd == "manifest":
         if len(a.rest) < 2 or a.rest[0] not in ("flat", "get"):
-            raise SystemExit("usage: simfbd manifest flat <dir> | simfbd manifest get <dir> <name>")
+            raise SystemExit("usage: simfbdr manifest flat <dir> | simfbdr manifest get <dir> <name>")
         manifest.main(a.rest)
     else:
         ap.print_help()

@@ -13,7 +13,7 @@ quietly leave a default in place. A config may also say which versions it is to 
     uses: [rb@28e5b2, paleobuddy@1.1.0]
 
 and then it is refused where they are not those. The defaults are written down once, in defaults/batch.yml
-and defaults/run.yml beside this file, which list every setting there is. A batch does not say how many replicates it has: `simfbd
+and defaults/run.yml beside this file, which list every setting there is. A batch does not say how many replicates it has: `simfbdr
 extend` adds them and the manifest counts them.
 """
 import difflib
@@ -64,9 +64,9 @@ def load(path, kind, with_defaults=True):
     try:
         doc = yaml.safe_load(open(path)) or {}
     except yaml.YAMLError as e:
-        raise SystemExit(f"simfbd: {path} is not valid YAML\n  {e}")
+        raise SystemExit(f"simfbdr: {path} is not valid YAML\n  {e}")
     if not isinstance(doc, dict):
-        raise SystemExit(f"simfbd: {path} must be settings under their section names")
+        raise SystemExit(f"simfbdr: {path} must be settings under their section names")
     by_name = {name: key for key, name, _ in table}
     out = defaults(kind) if with_defaults else {}
     stated = doc.pop("uses", None) or []
@@ -75,24 +75,24 @@ def load(path, kind, with_defaults=True):
         if name not in by_name:
             other = {n: k for k, n, _ in KINDS["run" if kind == "batch" else "batch"][0]}
             if name in other:
-                raise SystemExit(f"simfbd: {path} sets {name}, which belongs to the "
+                raise SystemExit(f"simfbdr: {path} sets {name}, which belongs to the "
                                  f"{'run' if kind == 'batch' else 'batch'}, not the {kind}")
             near = difflib.get_close_matches(name, by_name, n=1)
-            raise SystemExit(f"simfbd: {path} sets {name}, which is not a setting"
+            raise SystemExit(f"simfbdr: {path} sets {name}, which is not a setting"
                              + (f". Did you mean {near[0]}?" if near else "")
-                             + f"\n  simfbd config default {kind} lists them")
+                             + f"\n  simfbdr config default {kind} lists them")
         if v is None:
             continue
         key = by_name[name]
         out[key] = _word(v)
         if key in S.CHOICES and out[key] not in S.CHOICES[key]:
-            raise SystemExit(f"simfbd: {path}: {name} is {out[key]}; it is one of "
+            raise SystemExit(f"simfbdr: {path}: {name} is {out[key]}; it is one of "
                              f"{', '.join(S.CHOICES[key])}")
     name_of = {key: name for key, name, _ in table}
     if with_defaults is False:
         out.pop("_uses")
     missing = [name_of[k] for k in required if k not in out]
     if missing:
-        raise SystemExit(f"simfbd: {path} does not set {', '.join(missing)}")
+        raise SystemExit(f"simfbdr: {path} does not set {', '.join(missing)}")
     return out
 

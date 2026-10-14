@@ -23,7 +23,7 @@ def die(msg):
 
 def warn_if_dirty():
     if tools.dirty():
-        sys.stderr.write("warning: simfbd has uncommitted changes, so the commit it records "
+        sys.stderr.write("warning: simfbdr has uncommitted changes, so the commit it records "
                          "will not reproduce this\n")
 
 
@@ -68,8 +68,8 @@ def extend(d, n, allow_sim_change=False):
     if subprocess.run([tools.rscript(), str(sim)], env=env).returncode != 0:
         die("simulation failed")
     manifest.write_batch(d, {"first": have + 1, "last": last,
-                             "inputs": {"config.yml": cfg_hash, "simfbd": {"sim.R": sim_hash}},
-                             "simfbd_commit": tools.version(),
+                             "inputs": {"config.yml": cfg_hash, "simfbdr": {"sim.R": sim_hash}},
+                             "simfbdr_commit": tools.version(),
                              "uses": tools.uses(tools.SIMULATES)})
     # the simulator reports what it actually drew with; disagreement means a setting did not reach it
     used = os.path.join(d, "sim_params.tsv")

@@ -108,12 +108,12 @@ make_bins <- function(age, unc) {
 ###
 # SBC simulation constants
 #
-# Every generative parameter comes from the batch's config.yml, which simfbd exports into
+# Every generative parameter comes from the batch's config.yml, which simfbdr exports into
 # the environment. A missing key is fatal: a silent default is how the origin prior drifted
 # from the value the analysis assumed.
 cfg <- function(k) {
   v <- Sys.getenv(k)
-  if (v == "") stop("config key ", k, " is not set; simfbd must export it")
+  if (v == "") stop("config key ", k, " is not set; simfbdr must export it")
   as.numeric(v)
 }
 
@@ -879,15 +879,15 @@ simulate_batch <- function(reps, reps_dir, first = 1) {
 #
 # seeds.RData is reused when present, so reruns of a batch stay comparable.
 #
-# Driven entirely by the batch's config.yml, which simfbd exports; BATCHDIR and NREPS
-# come from simfbd too. NREPS is the count the batch ends with and REPS_HAVE the count it
+# Driven entirely by the batch's config.yml, which simfbdr exports; BATCHDIR and NREPS
+# come from simfbdr too. NREPS is the count the batch ends with and REPS_HAVE the count it
 # already holds, so an extension simulates only the replicates after REPS_HAVE.
 # Sourcing with sim_functions_only set loads the functions only.
 if (!exists("sim_functions_only")) {
   reps <- as.integer(cfg("NREPS"))
   first <- as.integer(cfg_opt("REPS_HAVE", 0)) + 1L
   reps_dir <- Sys.getenv("BATCHDIR")
-  if (reps_dir == "") stop("BATCHDIR is not set; simfbd must export it")
+  if (reps_dir == "") stop("BATCHDIR is not set; simfbdr must export it")
   if (!grepl("/$", reps_dir)) reps_dir <- paste0(reps_dir, "/")
   smart_dir_create(reps_dir)
 
@@ -904,7 +904,7 @@ if (!exists("sim_functions_only")) {
   write.table(nums, paste0(reps_dir, "nums.tsv"), append = first > 1,
               row.names = FALSE, col.names = first == 1, quote = FALSE, sep = "\t")
 
-  # what the draws actually used, for simfbd to check against the config
+  # what the draws actually used, for simfbdr to check against the config
   keys <- c("NINTERVALS", "INTERVAL_WIDTH", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX", "NREPS",
             "GAMMA_L_SHAPE", "GAMMA_L_RATE", "GAMMA_M_SHAPE", "GAMMA_M_RATE",
             "GAMMA_P_SHAPE", "GAMMA_P_RATE", "GAMMA_RATE_MAX")

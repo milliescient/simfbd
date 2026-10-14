@@ -23,7 +23,7 @@
 # (bd.getAugmentedFirstAges()) and mnModel logs it with the rates, on the same generation
 # grid as the matrix monitor. tau_K is logged too (tauK[...]) but is not plotted yet.
 #
-# usage:  simfbd summarize <batch>/runs/<name> ...
+# usage:  simfbdr summarize <batch>/runs/<name> ...
 #
 # Every path and hyperparameter comes from the run's manifest, so the scoring uses the
 # same values the analysis used.
@@ -37,7 +37,7 @@ suppressMessages({
 
 latent_order <- c("d", "tau1", "b")   # youngest to oldest
 
-# Nothing here is inferred from a directory name. simfbd writes the manifest when it
+# Nothing here is inferred from a directory name. simfbdr writes the manifest when it
 # runs the analysis, recording the batch, the reporting model and every hyperprior it fed
 # to rb, so the scoring reads the same values the analysis used and cannot be pointed at the
 # wrong truth.
@@ -53,7 +53,7 @@ read_manifest <- function(dir) {
 
 manifest_for <- function(run) {
   m <- read_manifest(run)
-  if (!length(m)) stop("no manifest in ", run, "; simfbd analyze it first")
+  if (!length(m)) stop("no manifest in ", run, "; simfbdr analyze it first")
   m
 }
 
@@ -389,5 +389,5 @@ make_figures <- function(run) {
 }
 
 runs <- commandArgs(TRUE)
-if (!length(runs)) stop("usage: simfbd summarize <batch>/runs/<name> ...")
+if (!length(runs)) stop("usage: simfbdr summarize <batch>/runs/<name> ...")
 for (r in runs) make_figures(r)

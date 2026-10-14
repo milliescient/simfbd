@@ -123,7 +123,7 @@ def analyze(run, force=False, jobs=1, slots=None, slot_dir=None):
     bhash, rhash = manifest.digest(bcfg), manifest.digest(rcfg)
     _, bdoc = manifest.find(batch)
     if bdoc is None or not replicates(batch):
-        die(f"{batch} has no replicates yet: simfbd extend {batch} <how many>")
+        die(f"{batch} has no replicates yet: simfbdr extend {batch} <how many>")
     simulated_from = manifest.flat(batch).get("config_hash")
     if simulated_from != bhash:
         die(f"{bcfg} changed since its replicates were simulated ({simulated_from} -> {bhash}).\n"
@@ -264,11 +264,11 @@ def analyze(run, force=False, jobs=1, slots=None, slot_dir=None):
                              "inputs": {"config.yml": rhash,
                                         "batch": {"config.yml": bhash,
                                                   occurrences: manifest.digest(os.path.join(batch, occurrences))},
-                                        "simfbd": {template.name: manifest.digest(template)}},
-                             "simfbd_commit": tools.version(),
+                                        "simfbdr": {template.name: manifest.digest(template)}},
+                             "simfbdr_commit": tools.version(),
                              "rb_md5": rb_md5, "rb_commit": rb_describe})
     done = sum(1 for f in os.listdir(out) if f.startswith("rep_") and f.endswith(".log"))
     print(f"logs: {done}/{n}, {lines_in(failures)} failed")
     print(f"manifest: {os.path.join(run, 'manifest.yml')}")
-    print(f"now run: simfbd summarize {run}")
+    print(f"now run: simfbdr summarize {run}")
     return lines_in(failures) == 0

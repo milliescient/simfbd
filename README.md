@@ -1,14 +1,14 @@
-# simfbd
+# simfbdr
 
 Simulates batches of fossil records and analyzes them in RevBayes, for simulation-based
 calibration of the fossilized birth-death range models.
 
 ## Install
 
-    pip install -e /path/to/simfbd        # or: uv tool install /path/to/simfbd
+    pip install -e /path/to/simfbdr        # or: uv tool install /path/to/simfbdr
 
-That puts `simfbd` on the path. It runs R and RevBayes, which are not Python's to install.
-Each is found from `$RBIN` or `$RSCRIPT`, else `~/.config/simfbd/tools.yml`, else `PATH`:
+That puts `simfbdr` on the path. It runs R and RevBayes, which are not Python's to install.
+Each is found from `$RBIN` or `$RSCRIPT`, else `~/.config/simfbdr/tools.yml`, else `PATH`:
 
 ```yaml
 rb:                               # one build, or a list of them
@@ -17,22 +17,22 @@ rb:                               # one build, or a list of them
 rscript: /opt/R/bin/Rscript
 ```
 
-`simfbd doctor` says which this machine would use, which rule supplied each, and whether the R
-packages are there. Every `extend` and `analyze` prints the same before it starts. `simfbd uses`
-prints what would run as `name@version`, and `simfbd uses rb` one version.
+`simfbdr doctor` says which this machine would use, which rule supplied each, and whether the R
+packages are there. Every `extend` and `analyze` prints the same before it starts. `simfbdr uses`
+prints what would run as `name@version`, and `simfbdr uses rb` one version.
 
 A config can say which versions it is to be run with, and is then refused where they are not
 those, however the tools were found:
 
 ```yaml
-uses: [rb@28e5b2]                 # in a run's config: any of simfbd, rb
-uses: [paleobuddy@1.1.0, R@4.5.3] # in a batch's: any of simfbd, R, paleobuddy
+uses: [rb@28e5b2]                 # in a run's config: any of simfbdr, rb
+uses: [paleobuddy@1.1.0, R@4.5.3] # in a batch's: any of simfbdr, R, paleobuddy
 ```
 
 ### Which rb analyzes a run
 
 A machine can hold several builds of rb, and each is known by the commit its binary carries,
-which `simfbd doctor` lists. `simfbd analyze` picks one for the run, by the first of these that
+which `simfbdr doctor` lists. `simfbdr analyze` picks one for the run, by the first of these that
 applies:
 
 1. the version the run's config states under `uses`. If no build here is that one, the run is
@@ -44,7 +44,7 @@ applies:
 
 `$RBIN` overrides all three for one command, and is still held to what the config states.
 
-The run's manifest records which build it was, as `uses: ["simfbd@...", "rb@..."]`.
+The run's manifest records which build it was, as `uses: ["simfbdr@...", "rb@..."]`.
 
 ## Layout
 
@@ -58,7 +58,7 @@ the batch's hyperpriors and has no way to set them.
 ```
 a-batch/
   config.yml         the generating process and every hyperprior, written by you
-  manifest.yml       the record of what was simulated from it, written by simfbd
+  manifest.yml       the record of what was simulated from it, written by simfbdr
   occurrences_complete/  occurrences_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
@@ -71,31 +71,31 @@ A batch is a directory anywhere on disk. A manifest does not record where it is,
 finds its batch as the directory two above it.
 
 ```
-src/simfbd/          the package
-  cli.py             the simfbd command
+src/simfbdr/          the package
+  cli.py             the simfbdr command
   settings.py        every setting: the name it is written under and what it means
   defaults/          batch.yml and run.yml: every setting, with the value it takes when left out
   config.py          reads and checks a config.yml
   batch.py  analyze.py  simulate replicates, analyze a run
   manifest.py        writes, reads and checks a manifest.yml
   ranks.py           mean rank per parameter
-  scripts/           what simfbd runs or carries: the simulator sim.R, the Rev templates,
+  scripts/           what simfbdr runs or carries: the simulator sim.R, the Rev templates,
                      and summarize.R
 ```
 
 ## Running
 
 ```sh
-simfbd extend sims/batch1 200                # simulate the batch's first 200 replicates
-simfbd analyze sims/batch1/runs/fbdrp_firstlast --jobs 6  # analyze every replicate not yet analyzed
-simfbd summarize sims/batch1/runs/fbdrp_firstlast
-simfbd extend sims/batch1 800                # later: 800 more, and the batch has 1000
-simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
+simfbdr extend sims/batch1 200                # simulate the batch's first 200 replicates
+simfbdr analyze sims/batch1/runs/fbdrp_firstlast --jobs 6  # analyze every replicate not yet analyzed
+simfbdr summarize sims/batch1/runs/fbdrp_firstlast
+simfbdr extend sims/batch1 800                # later: 800 more, and the batch has 1000
+simfbdr status sims/batch1 sims/batch1/runs/fbdrp_firstlast
 ```
 
 ## Config and manifest
 
-You write the config and simfbd writes the manifest. A setting is written once, in the
+You write the config and simfbdr writes the manifest. A setting is written once, in the
 config. The manifest holds the record: the hash of the config it was made from, how many
 replicates there are, which code ran, the hashes of what it read and wrote, and what the
 filter refused.
@@ -132,12 +132,12 @@ mcmc:
 ```
 
 Every setting, with what it means and its default, is in `defaults/batch.yml` and
-`defaults/run.yml` in the package. `simfbd config default batch` prints one, which can be
+`defaults/run.yml` in the package. `simfbdr config default batch` prints one, which can be
 copied to start a config. A name that is not a setting is refused, with the nearest one that
 is, and so is a run setting in a batch's config or the reverse. Times are in whatever unit
 the rates are per.
 
-A batch's config does not say how many replicates it has. `simfbd extend` adds them and the
+A batch's config does not say how many replicates it has. `simfbdr extend` adds them and the
 manifest counts them. `extend` refuses if the config or the simulator has changed since the
 earlier replicates, which are never redrawn or rewritten. An extension simulates only what is
 missing, appends rows to `true_vals.tsv` and `nums.tsv`, and adds its per-replicate files
@@ -149,14 +149,14 @@ A manifest records what a notebook's lock records, in the same words. `uses` nam
 that ran as `name@version`, and `inputs` and `outputs` give each path with its hash:
 
 ```yaml
-uses: ["simfbd@f0c6fe5", "rb@28e5b2"]    # a batch's names R and paleobuddy too
+uses: ["simfbdr@f0c6fe5", "rb@28e5b2"]    # a batch's names R and paleobuddy too
 inputs:
   config.yml: d26610a2e386               # this run's config
   batch:
     config.yml: 60319e066c3d             # the batch's
     occurrences_complete: 5d415912e147
-  simfbd:
-    infer-fbdrp.Rev: 12eb464f40e7        # the template simfbd carried
+  simfbdr:
+    infer-fbdrp.Rev: 12eb464f40e7        # the template simfbdr carried
 outputs:
   output: 0b1b35e37934                   # written by this run
 ```
@@ -166,16 +166,16 @@ is `digest()` in `manifest.py`: SHA-1 over one line per file, its relative name 
 of its bytes, files in sorted order, first 12 hex digits. It is the hash sloop computes, so a
 page that pins one of these paths, a config included, records the same value.
 
-`simfbd status` recomputes the hashes and reports each path as `current`, `changed` or
+`simfbdr status` recomputes the hashes and reports each path as `current`, `changed` or
 `missing`. For a run it also checks the edge: what the run read must be what the batch says
 it wrote, and a run analyzed before its batch was extended is reported `stale`. It exits
-non-zero if anything is changed, missing or stale. A script of simfbd's own that has changed
+non-zero if anything is changed, missing or stale. A script of simfbdr's own that has changed
 since is reported as `differs` and not counted.
 
 A batch's manifest keeps the output hashes of every extension, and only the last can still
 be checked, since an extension changes the files.
 
-`simfbd --version` prints the commit of the code, ending in `-dirty` when it has uncommitted
+`simfbdr --version` prints the commit of the code, ending in `-dirty` when it has uncommitted
 changes.
 
 ## The rate prior
@@ -269,7 +269,7 @@ run is refused where a midpoint is a rate-shift time, since rb cannot start ther
 
 ## What is enforced
 
-The batch's `config.yml` is the only definition of the hyperpriors. simfbd hands it to the
+The batch's `config.yml` is the only definition of the hyperpriors. simfbdr hands it to the
 simulator and writes the same values into the per-replicate `aux/run_<rep>.Rev` the Rev
 template reads.
 
@@ -277,7 +277,7 @@ template reads.
 - A run cannot set what the batch owns. A batch setting in a run's config is refused.
 - The simulator reports what it drew with. `sim_params.tsv` is compared against the config.
 - An edited config is refused. Each manifest records the hash of the config that produced its
-  data, and a run records the batch hash it ran against. `simfbd analyze --force` overrides
+  data, and a run records the batch hash it ran against. `simfbdr analyze --force` overrides
   for a run.
 
 `settings.py` has one line a setting: the name it is written under, what it means, and the

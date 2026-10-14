@@ -4,7 +4,7 @@
 Ranks, not point estimates: (est-true)/true divides by a drawn rate that can be near
 zero and reads as a large bias even when the posterior is centred.
 
-Usage:  simfbd ranks <batch>/runs/<name>
+Usage:  simfbdr ranks <batch>/runs/<name>
 """
 import os
 import sys
@@ -50,7 +50,7 @@ def main(argv=None):
     # a chain still being written is not a posterior, so require the full sample count
     conf = manifest.flat(run)
     if "GENS" not in conf:
-        sys.exit(f"{run} has no manifest: run simfbd analyze on it first")
+        sys.exit(f"{run} has no manifest: run simfbdr analyze on it first")
     want = int(conf["GENS"]) // int(conf["PRINTGEN"]) + 1
 
     out = os.path.join(run, "output")

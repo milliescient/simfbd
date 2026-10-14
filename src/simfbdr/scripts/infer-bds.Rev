@@ -4,7 +4,7 @@
 ### priors, origin prior, moves and monitors, so the two arms differ only in the density.
 ###
 ### Every prior hyperparameter arrives as a variable set by the per-rep aux file that
-### simfbd writes from the batch's config.yml. Nothing is hardcoded here: the batch
+### simfbdr writes from the batch's config.yml. Nothing is hardcoded here: the batch
 ### that generated the data and the analysis of it read one definition, so they
 ### cannot drift apart.
 ###

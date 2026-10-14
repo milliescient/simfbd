@@ -1,7 +1,7 @@
-"""The programs simfbd runs, and which version of itself it is.
+"""The programs simfbdr runs, and which version of itself it is.
 
 rb and Rscript are looked for in the environment first ($RBIN, $RSCRIPT), then in
-~/.config/simfbd/tools.yml, then on PATH:
+~/.config/simfbdr/tools.yml, then on PATH:
 
     rb:
       - /opt/revbayes/build/rb
@@ -25,7 +25,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = HERE / "scripts"
-TOOLS_FILE = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "simfbd" / "tools.yml"
+TOOLS_FILE = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "simfbdr" / "tools.yml"
 
 
 def _configured():
@@ -136,8 +136,8 @@ def announce():
 
 
 def environment():
-    """What a script simfbd launches is given: the tools, and this interpreter, which is
-    the one that has simfbd and its YAML library."""
+    """What a script simfbdr launches is given: the tools, and this interpreter, which is
+    the one that has simfbdr and its YAML library."""
     return dict(os.environ, RBIN=rb(), RSCRIPT=rscript(), PY=sys.executable)
 
 
@@ -145,7 +145,7 @@ def script(name):
     path = SCRIPTS / name
     if not path.exists():
         have = ", ".join(sorted(p.name for p in SCRIPTS.iterdir() if p.is_file()))
-        raise SystemExit(f"simfbd: no script {name}. There are: {have}")
+        raise SystemExit(f"simfbdr: no script {name}. There are: {have}")
     return path
 
 
@@ -183,18 +183,18 @@ def which(program):
 
 
 # what a batch is simulated with, and what a run is analyzed with
-SIMULATES = ("simfbd", "R", "paleobuddy")
-FITS = ("simfbd", "rb")
-KNOWN = ("simfbd", "rb", "R", "paleobuddy")
+SIMULATES = ("simfbdr", "R", "paleobuddy")
+FITS = ("simfbdr", "rb")
+KNOWN = ("simfbdr", "rb", "R", "paleobuddy")
 _seen = {}
 
 
 def version_of(name):
-    """The version of one of the things simfbd runs, as a word a config or a notebook can
-    name: a commit for simfbd and rb, a version number for R and paleobuddy."""
+    """The version of one of the things simfbdr runs, as a word a config or a notebook can
+    name: a commit for simfbdr and rb, a version number for R and paleobuddy."""
     if name in _seen:
         return _seen[name]
-    if name == "simfbd":
+    if name == "simfbdr":
         v = version()
     elif name == "rb":
         v = rb_identity()[2].rsplit("-g", 1)[-1]
@@ -208,7 +208,7 @@ def version_of(name):
         _seen["paleobuddy"] = got[1] if len(got) > 1 else "unknown"
         return _seen[name]
     else:
-        raise SystemExit(f"simfbd: {name} is not something simfbd runs; it runs {', '.join(KNOWN)}")
+        raise SystemExit(f"simfbdr: {name} is not something simfbdr runs; it runs {', '.join(KNOWN)}")
     _seen[name] = v
     return v
 
@@ -222,6 +222,7 @@ def require(stated, where):
     bad = []
     for u in stated:
         name, at, want = str(u).partition("@")
+        name = "simfbdr" if name == "simfbd" else name      # a config written before the rename
         if name not in KNOWN or not at or not want:
             raise SystemExit(f"error: {where}: uses {u}; write one of {', '.join(KNOWN)} as name@version")
         have = version_of(name)
