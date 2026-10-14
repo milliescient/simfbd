@@ -62,7 +62,7 @@ a-batch/
   occurrences_complete/  occurrences_firstlast/
   times/  true_ranges/  true_vals.tsv  sim_list.RData  seeds.RData
   runs/fbdrp_firstlast/
-    config.yml       which record to read, and how to analyze it
+    config.yml       which occurrences to read, and how to analyze them
     manifest.yml     + what it read and wrote, and which code and which rb ran
     output/  aux/  results/
 ```
