@@ -1,7 +1,7 @@
-# simfbd — FBD-range simulation & SBC validation
+# simfbd
 
-Simulation-based calibration and misspecification analyses for the RevBayes
-`dnFBDRMatrix` model set.
+Simulates batches of fossil records and analyzes them in RevBayes, for simulation-based
+calibration of the fossilized birth-death range models.
 
 ## Install
 
@@ -18,9 +18,8 @@ rscript: /opt/R/bin/Rscript
 ```
 
 `simfbd doctor` says which this machine would use, which rule supplied each, and whether the R
-packages are there. Every `extend` and `analyze` prints the same two lines before it starts, since
-a machine with no tools file quietly falls back to whatever is on `PATH`. `simfbd uses` prints
-what would run as `name@version`, and `simfbd uses rb` one version.
+packages are there. Every `extend` and `analyze` prints the same before it starts. `simfbd uses`
+prints what would run as `name@version`, and `simfbd uses rb` one version.
 
 A config can say which versions it is to be run with, and is then refused where they are not
 those, however the tools were found:
@@ -40,14 +39,12 @@ applies:
    refused and the builds that are here are listed.
 2. the build that analyzed the run's earlier replicates, read from its manifest, so a run that
    is topped up after its batch is extended keeps one rb throughout. If that build is gone the
-   run is refused; `--force` goes on with the default and the manifest then names the new one.
+   run is refused. `--force` goes on with the default and the manifest then names the new one.
 3. the first build the tools file lists, else `rb` on `PATH`.
 
 `$RBIN` overrides all three for one command, and is still held to what the config states.
 
-So which rb analyzes a run is simfbd's to settle, not a notebook's. A notebook's own check of rb
-sees the one its scripts get by calling `rb`, which need not be the one simfbd picks. The run's
-manifest says which it was, as `uses: ["simfbd@...", "rb@..."]`, and a notebook can show that.
+The run's manifest records which build it was, as `uses: ["simfbd@...", "rb@..."]`.
 
 ## Layout
 
@@ -70,9 +67,8 @@ a-batch/
     output/  aux/  results/
 ```
 
-A batch is a directory anywhere on disk, and nothing in a manifest records where it is: a
-run finds its batch as the directory two above it. So a study can be kept, moved or handed
-over as a directory, with simfbd at a stated commit to read it.
+A batch is a directory anywhere on disk. A manifest does not record where it is, and a run
+finds its batch as the directory two above it.
 
 ```
 src/simfbd/          the package
@@ -87,9 +83,6 @@ src/simfbd/          the package
                      and summarize.R
 ```
 
-What it carries is only what it runs. Analyses of particular batches are in the notebook's
-`scripts/`, and the classical-estimator coverage sweeps are with the Warnock probe.
-
 ## Running
 
 ```sh
@@ -102,12 +95,10 @@ simfbd status sims/batch1 sims/batch1/runs/fbdrp_firstlast
 
 ## Config and manifest
 
-A config is what you ask for and a manifest is what was done. You write the config and
-simfbd never edits it; simfbd writes the manifest and you never edit it. A setting is written
-once, in the config, and the manifest holds only the record: the hash of the config it was
-made from, how many replicates there are, which code ran, the hashes of what it read and
-wrote, and what the filter refused. So a change to `config.yml` is always a decision, and a
-change to `manifest.yml` is always an event.
+You write the config and simfbd writes the manifest. A setting is written once, in the
+config. The manifest holds the record: the hash of the config it was made from, how many
+replicates there are, which code ran, the hashes of what it read and wrote, and what the
+filter refused.
 
 ```yaml
 # a batch's config.yml
@@ -140,20 +131,17 @@ mcmc:
   sample_every: 1000
 ```
 
-A config holds only what it needs to say. Every setting there is, with what it means and the
-value it takes when a config leaves it out, is in `defaults/batch.yml` and `defaults/run.yml`
-in the package, and `simfbd config default batch` prints one: copy it to start a config. Those
-files are where the defaults come from, not a description of them. A name that is not a
-setting is refused, with the nearest one that is, and so is a run setting in a batch's config
-or the other way round. Times are in whatever unit the rates are per.
+Every setting, with what it means and its default, is in `defaults/batch.yml` and
+`defaults/run.yml` in the package. `simfbd config default batch` prints one, which can be
+copied to start a config. A name that is not a setting is refused, with the nearest one that
+is, and so is a run setting in a batch's config or the reverse. Times are in whatever unit
+the rates are per.
 
-A batch's config does not say how many replicates it has: `simfbd extend` adds them and the
-manifest counts them. New replicates cannot be drawn under different settings, since they
-come from the batch's own config, and `extend` refuses if that config or the simulator has
-changed since the earlier ones. Those are never redrawn or rewritten: an extension simulates
-only what is missing, appends rows to `true_vals.tsv` and `nums.tsv`, and adds its
-per-replicate files beside the others. Anything that pinned a hash of `true_vals.tsv`, an
-occurrences directory or the manifest will see that hash move, because those did grow.
+A batch's config does not say how many replicates it has. `simfbd extend` adds them and the
+manifest counts them. `extend` refuses if the config or the simulator has changed since the
+earlier replicates, which are never redrawn or rewritten. An extension simulates only what is
+missing, appends rows to `true_vals.tsv` and `nums.tsv`, and adds its per-replicate files
+beside the others, so the hashes of those files change.
 
 ### Checking a batch or a run
 
@@ -182,15 +170,13 @@ page that pins one of these paths, a config included, records the same value.
 `missing`. For a run it also checks the edge: what the run read must be what the batch says
 it wrote, and a run analyzed before its batch was extended is reported `stale`. It exits
 non-zero if anything is changed, missing or stale. A script of simfbd's own that has changed
-since is reported as `differs` and not counted, since the commit under `uses` already names
-what ran.
+since is reported as `differs` and not counted.
 
 A batch's manifest keeps the output hashes of every extension, and only the last can still
 be checked, since an extension changes the files.
 
 `simfbd --version` prints the commit of the code, ending in `-dirty` when it has uncommitted
-changes. Run from a checkout it asks git; an installed copy carries the commit it was built
-from.
+changes.
 
 ## The rate prior
 
@@ -206,9 +192,9 @@ rate_prior:
 
 A speciation or extinction `rate` left out is PyRate's hyperprior, which it uses whenever the
 shift times are fixed: one rate parameter shared by the intervals, Uniform(0, 20), whose upper
-bound is `rate_parameter_max`. The
-simulator draws it per replicate and the analysis estimates it, as `gamma_rate_lambda` and
-`gamma_rate_mu`, which are in `true_vals.tsv` and ranked with the rates. Stated, it is fixed.
+bound is `rate_parameter_max`. The simulator draws it per replicate and the analysis estimates
+it, as `gamma_rate_lambda` and `gamma_rate_mu`, which are in `true_vals.tsv` and ranked with
+the rates. A stated `rate` is fixed.
 The fossil sampling `rate` is always stated. PyRate's hyperprior on it, which `-pP 1.5 0`
 asks for, is not built.
 
@@ -222,11 +208,9 @@ branch.
 
 ## The two ceilings on a simulation
 
-Batches that differ only in the origin prior pool into a range of tree sizes. A deep origin
-wants `simulation_limits.max_expected_lineages`, a ceiling on the lineages a draw is expected
-to bear, because it leaves
-the oldest interval unbounded and a draw in the upper tail of the speciation rate then never
-finishes simulating.
+`simulation_limits.max_expected_lineages` is a ceiling on the lineages a draw is expected to
+bear. A deep origin needs it, because a draw in the upper tail of the speciation rate
+otherwise never finishes simulating.
 
 `simulation_limits.max_waiting_time_draws` is the second ceiling, on the work one simulation
 may do. It counts the waiting times the birth-death simulator draws, across every tree it
@@ -237,27 +221,24 @@ stream, so the same seeds refuse the same draws on any machine and a batch repro
 measured on, 200000 after roughly 60. The simulator prints how many draws were refused and
 the most any finished simulation used.
 
-The first ceiling is the one filter that costs something. It is applied by refusing the draw
-before it is simulated, so it is a function of theta alone: it truncates the prior the
+The first ceiling refuses a draw before it is simulated, so it truncates the prior the
 simulator draws from while the analysis keeps the untruncated one, and the SBC ranks are
-non-uniform by exactly that much. A floor and ceiling on the number of reported taxa,
-`accepted_replicates`, is a function of the record and is free, because conditioning on a
-function of the record leaves the posterior given that record alone. Every batch records
-`prior_filter`, the fraction of draws the ceiling refused, in its manifest.
+non-uniform by that much. Every batch records `prior_filter`, the fraction of draws the
+ceiling refused, in its manifest. A truncation of fraction e shifts a mean rank by roughly
+e/2, against a standard error of 0.289/sqrt(n). At n = 10000 that is 0.0029, so e has to stay
+near or below 0.5% to be invisible.
 
-How much it costs is a question of resolution: a truncation of fraction e shifts a mean rank
-by roughly e/2, against a standard error of 0.289/sqrt(n). At n = 10000 that is 0.0029, so e
-has to stay near or below 0.5% for the truncation to be invisible. Whether a given prior can
-meet that is a question for the study that chooses it; `prior_filter` is what lets it be
-measured rather than assumed.
+A floor and ceiling on the number of reported taxa, `accepted_replicates`, is a function of
+the record and does not bias the ranks.
 
-## The two key axes
+## Occurrences and reporting model
 
-- **`inference.occurrences`** = `complete` | `firstlast`: which occurrences the analysis reads.
+- `inference.occurrences` = `complete` | `firstlast`: which occurrences the analysis reads.
   All come from the same simulated history.
-- **`inference.reporting_model`** = `complete` | `firstlast`: how the model treats them.
+- `inference.reporting_model` = `complete` | `firstlast`: how the model treats them.
 
-Matching them is validation; mismatching them is a misspecification analysis.
+A run that matches them validates the model. A run that does not is a misspecification
+analysis.
 
 ## Dating resolution
 
@@ -281,52 +262,36 @@ prior. The batch's own grid is written as it always was.
 How an analysis treats the ages it reads is the run's choice, `inference.occurrence_ages`:
 `reported` hands rb the bins, `midpoint` puts each occurrence at its bin's middle, and `drawn`
 at a uniform draw within it. `inference.age_draws: 10` makes ten such draws of each replicate
-and runs a chain on each, which is PyRate's practice, and pools them: `output/rep_<n>.log` is
+and runs a chain on each, which is PyRate's practice, and pools them. `output/rep_<n>.log` is
 then the length of one chain, and after burn-in takes each sample from the next draw in turn,
 so each draw counts the same. The chains themselves are under `aux/draw_<k>/`. A midpoint
 run is refused where a midpoint is a rate-shift time, since rb cannot start there.
 
-## Why the parameters are tracked this way
+## What is enforced
 
-The hyperpriors have to reach two places: the simulator that draws the true values, and
-the rb analysis that puts priors on them. When they are written down twice they drift,
-and the drift is silent because both halves still run. That has already happened twice
-here: once when the origin prior was `U(9,15)` in the simulator and `U(5,15)` on record,
-and once when a copied analysis read one batch's data while being scored against another
-batch's truth.
+The batch's `config.yml` is the only definition of the hyperpriors. simfbd hands it to the
+simulator and writes the same values into the per-replicate `aux/run_<rep>.Rev` the Rev
+template reads.
 
-So the batch's `config.yml` is the single definition. simfbd hands it to the simulator and
-writes the same values into the per-replicate `aux/run_<rep>.Rev` the Rev template reads.
-Neither script contains a prior of its own. Four rules keep it that way:
+- A missing setting is fatal. The simulator has no defaults for what a batch must say.
+- A run cannot set what the batch owns. A batch setting in a run's config is refused.
+- The simulator reports what it drew with. `sim_params.tsv` is compared against the config.
+- An edited config is refused. Each manifest records the hash of the config that produced its
+  data, and a run records the batch hash it ran against. `simfbd analyze --force` overrides
+  for a run.
 
-- **A missing setting is fatal.** The simulator has no defaults for what a batch must say,
-  because a default is what lets a renamed or forgotten setting produce a plausible run.
-- **A run cannot set what the batch owns.** A batch setting in a run's config is refused,
-  so there is never a second definition to disagree with.
-- **The simulator reports what it drew with.** `sim_params.tsv` is compared against the
-  config, so a setting that fails to reach it is caught rather than assumed.
-- **An edited config is refused, not mixed.** Each manifest records the hash of the config
-  that produced its data, and a run records the batch hash it ran against. Changing either
-  after the fact stops the run instead of quietly mixing parameters across replicates.
-  `simfbd analyze --force` overrides for a run.
-
-A config and its manifest together make an output self-describing: the settings, the config
-hashes, the script hashes and the rb binary. `summarize.R` reads them rather than re-deriving
-anything from directory names, so a result cannot be scored against the wrong truth.
-
-The names are in `settings.py`, one line a setting: the name it is written under, what it
-means, and the name the simulator and the Rev templates know it by. That last is how a value
-reaches them and nothing a person writes or reads. A new setting gets a line there.
+`settings.py` has one line a setting: the name it is written under, what it means, and the
+name the simulator and the Rev templates know it by.
 
 ## What is not reproducible
 
-A simulation reproduces: the same seeds give the same batch, byte for byte. An analysis does too,
-on one machine with one binary: each replicate's chain is seeded with `mcmc.seed` plus the
-replicate's number, so running it again gives the same log. Across machines or builds of rb a
-chain may differ, and its summaries agree to within Monte Carlo error.
+The same seeds give the same batch, byte for byte. An analysis reproduces on one machine with
+one binary, since each replicate's chain is seeded with `mcmc.seed` plus the replicate's
+number. Across machines or builds of rb a chain may differ, and its summaries agree to within
+Monte Carlo error.
 
 ## Scope
 
-`inference.model: fbdrp` and `bds` are wired. PyRate itself is not run: `bds` under
+`inference.model` is `fbdrp` or `bds`. PyRate itself is not run. `bds` under
 `condition: sampling` is its likelihood, and the script that ran the program on a batch is on
-the `all-priors` branch. The previous TreeSim pipeline is in git history at 8563117.
+the `all-priors` branch.
