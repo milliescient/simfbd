@@ -20,20 +20,21 @@ tree:
                                    # backward from exactly this many extant species
 
 rate_prior:                        # PyRate's: an independent gamma draw for each rate in each interval
-  speciation:
+  lambda:                          # the speciation rate
     shape:                         # required. PyRate's -pL is 1.1
     rate:                          # unset, it is drawn per replicate from Uniform(0, rate_parameter_max) and
                                    # estimated, which is what PyRate does when the shift times are fixed
-  extinction:
+  mu:                              # the extinction rate
     shape:                         # required. PyRate's -pM is 1.1
     rate:
-  fossil_sampling:
+  psi:                             # the fossil sampling rate
     shape:                         # required. PyRate's -pP is 1.5
     rate:                          # required. PyRate's is 1.1
-  rate_parameter_max: 20           # speciation and extinction only
+  rate_parameter_max: 20           # lambda and mu only
 
 record:
-  extant_sampling_probability:     # unset, every lineage alive at the present is seen, and a run may assume any value
+  rho:                             # the extant sampling probability. unset, every lineage alive at the
+                                   # present is seen, and a run may assume any value
   occurrence_bins:
     width:                         # required. occurrence ages are reported to these bins
     oldest_edge:                   # required

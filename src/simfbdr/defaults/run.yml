@@ -14,7 +14,7 @@ inference:
   age_draws: 1                  # when drawn: this many draws, a chain each, pooled into one
                                 # posterior per replicate, which is PyRate's practice
   condition:                    # required. time | sampling | survival | nTaxa
-  extant_sampling_probability:  # required
+  rho:                          # required. the extant sampling probability the analysis assumes
   origin_prior: uniform      # uniform | exponential | none. none supplies no origin at all, so
                              # the oldest birth is the process start under an improper flat
                              # prior and the matrix moves sample it

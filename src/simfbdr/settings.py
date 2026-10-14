@@ -14,19 +14,19 @@ BATCH_SETTINGS = [
      "the process and its record end here, not at zero; younger occurrences are discarded"),
     ("AGE_MIN", "origin_age.min", "origin ~ Uniform(min, max)"),
     ("AGE_MAX", "origin_age.max", ""),
-    ("GAMMA_L_SHAPE", "rate_prior.speciation.shape",
-     "PyRate's prior: an independent gamma draw per interval"),
-    ("GAMMA_L_RATE", "rate_prior.speciation.rate",
+    ("GAMMA_L_SHAPE", "rate_prior.lambda.shape",
+     "the speciation rate. PyRate's prior: an independent gamma draw per interval"),
+    ("GAMMA_L_RATE", "rate_prior.lambda.rate",
      "left out, it is drawn per replicate from Uniform(0, rate_parameter_max) and estimated"),
-    ("GAMMA_M_SHAPE", "rate_prior.extinction.shape", ""),
-    ("GAMMA_M_RATE", "rate_prior.extinction.rate", ""),
-    ("GAMMA_P_SHAPE", "rate_prior.fossil_sampling.shape", ""),
-    ("GAMMA_P_RATE", "rate_prior.fossil_sampling.rate", "fixed; PyRate's is 1.1"),
+    ("GAMMA_M_SHAPE", "rate_prior.mu.shape", "the extinction rate"),
+    ("GAMMA_M_RATE", "rate_prior.mu.rate", ""),
+    ("GAMMA_P_SHAPE", "rate_prior.psi.shape", "the fossil sampling rate"),
+    ("GAMMA_P_RATE", "rate_prior.psi.rate", "fixed; PyRate's is 1.1"),
     ("GAMMA_RATE_MAX", "rate_prior.rate_parameter_max",
-     "upper bound of the uniform a speciation or extinction rate parameter left out is drawn from"),
+     "upper bound of the uniform a lambda or mu rate parameter left out is drawn from"),
 
-    ("RHO", "record.extant_sampling_probability",
-     "chance a lineage alive at the present is seen there"),
+    ("RHO", "record.rho",
+     "the extant sampling probability: the chance a lineage alive at the present is seen there"),
     ("BIN_WIDTH", "record.occurrence_bins.width",
      "occurrence ages are reported to these bins"),
     ("BIN_MAX", "record.occurrence_bins.oldest_edge", ""),
@@ -61,7 +61,7 @@ RUN_SETTINGS = [
     ("AGE_DRAWS", "inference.age_draws",
      "when drawn: this many draws, a chain each, pooled into one posterior per replicate"),
     ("COND", "inference.condition", "what the process is conditioned on, as RevBayes names it"),
-    ("RHO", "inference.extant_sampling_probability", ""),
+    ("RHO", "inference.rho", "the extant sampling probability the analysis assumes"),
     ("ORIGIN_PRIOR", "inference.origin_prior", ""),
     ("LATENTS", "inference.monitor_latents",
      "false drops the per-taxon b, d, tau_1 and tau_K from the log, which a rates-only "
@@ -90,6 +90,18 @@ RUN_RECORD = {
 # what a batch cannot be simulated without, and a run cannot be analyzed without
 BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "GAMMA_L_SHAPE", "GAMMA_M_SHAPE", "GAMMA_P_SHAPE",
                   "GAMMA_P_RATE", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX"]
+# the names these were written under before 2026-10-13, which a config may still use
+FORMERLY = {
+    "rate_prior.speciation.shape": "rate_prior.lambda.shape",
+    "rate_prior.speciation.rate": "rate_prior.lambda.rate",
+    "rate_prior.extinction.shape": "rate_prior.mu.shape",
+    "rate_prior.extinction.rate": "rate_prior.mu.rate",
+    "rate_prior.fossil_sampling.shape": "rate_prior.psi.shape",
+    "rate_prior.fossil_sampling.rate": "rate_prior.psi.rate",
+    "record.extant_sampling_probability": "record.rho",
+    "inference.extant_sampling_probability": "inference.rho",
+}
+
 RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN"]
 # The value a setting takes when a config leaves it out is in defaults/batch.yml and
 # defaults/run.yml, not here.

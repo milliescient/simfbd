@@ -109,9 +109,9 @@ origin_age:
   min: 9
   max: 15
 rate_prior:
-  speciation: {shape: 1.1}
-  extinction: {shape: 1.1}
-  fossil_sampling: {shape: 1.5, rate: 1.1}
+  lambda: {shape: 1.1}
+  mu: {shape: 1.1}
+  psi: {shape: 1.5, rate: 1.1}
 record:
   occurrence_bins: {width: 3, oldest_edge: 30}
 simulation_limits:
@@ -125,7 +125,7 @@ inference:
   occurrences: complete
   reporting_model: complete
   condition: time
-  extant_sampling_probability: 1.0
+  rho: 1.0
 mcmc:
   generations: 200000
   sample_every: 1000
@@ -185,17 +185,17 @@ and analyzed under the same one.
 
 ```yaml
 rate_prior:
-  speciation: {shape: 1.1}                   # PyRate's -pL
-  extinction: {shape: 1.1}                   # PyRate's -pM
-  fossil_sampling: {shape: 1.5, rate: 1.1}   # PyRate's -pP
+  lambda: {shape: 1.1}               # speciation, PyRate's -pL
+  mu: {shape: 1.1}                   # extinction, PyRate's -pM
+  psi: {shape: 1.5, rate: 1.1}       # fossil sampling, PyRate's -pP
 ```
 
-A speciation or extinction `rate` left out is PyRate's hyperprior, which it uses whenever the
+A `lambda` or `mu` `rate` left out is PyRate's hyperprior, which it uses whenever the
 shift times are fixed: one rate parameter shared by the intervals, Uniform(0, 20), whose upper
 bound is `rate_parameter_max`. The simulator draws it per replicate and the analysis estimates
 it, as `gamma_rate_lambda` and `gamma_rate_mu`, which are in `true_vals.tsv` and ranked with
 the rates. A stated `rate` is fixed.
-The fossil sampling `rate` is always stated. PyRate's hyperprior on it, which `-pP 1.5 0`
+The `psi` `rate` is always stated. PyRate's hyperprior on it, which `-pP 1.5 0`
 asks for, is not built.
 
 A rate parameter near zero is a speciation rate with no ceiling, so a batch that leaves one
