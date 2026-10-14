@@ -222,7 +222,6 @@ def require(stated, where):
     bad = []
     for u in stated:
         name, at, want = str(u).partition("@")
-        name = "simfbdr" if name == "simfbd" else name      # a config written before the rename
         if name not in KNOWN or not at or not want:
             raise SystemExit(f"error: {where}: uses {u}; write one of {', '.join(KNOWN)} as name@version")
         have = version_of(name)

@@ -72,7 +72,6 @@ def load(path, kind, with_defaults=True):
     stated = doc.pop("uses", None) or []
     out["_uses"] = [stated] if isinstance(stated, str) else [str(u) for u in stated]
     for name, v in _flatten(doc):
-        name = S.FORMERLY.get(name, name)
         if name not in by_name:
             other = {n: k for k, n, _ in KINDS["run" if kind == "batch" else "batch"][0]}
             if name in other:

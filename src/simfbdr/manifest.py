@@ -71,20 +71,12 @@ def batch_outputs(d):
     return [n for n in names if os.path.exists(os.path.join(d, n))]
 
 
-FORMERLY = {"simfbdr": "simfbd"}          # what a record written before the rename says
-
-
 def used(uses, name):
     """The version of one thing in a `uses` list of name@version."""
     for u in uses or []:
-        if str(u).split("@", 1)[0] in (name, FORMERLY.get(name)):
+        if str(u).split("@", 1)[0] == name:
             return str(u).split("@", 1)[1]
     return None
-
-
-def carried(given):
-    """The scripts of its own a batch or a run read, under either name."""
-    return given.get("simfbdr") or given.get("simfbd") or {}
 
 
 def dig(doc, path):
@@ -142,8 +134,8 @@ def flat(d):
         given = last.get("inputs") or {}
         if given:
             out["config_hash"] = shown(given.get("config.yml"))
-        out["sim_script_hash"] = shown(carried(given).get("sim.R") or last.get("sim_script_hash"))
-        out["simfbdr_commit"] = shown(used(last.get("uses"), "simfbdr") or (last.get("simfbdr_commit") or last.get("simfbd_commit")))
+        out["sim_script_hash"] = shown((given.get("simfbdr") or {}).get("sim.R") or last.get("sim_script_hash"))
+        out["simfbdr_commit"] = shown(used(last.get("uses"), "simfbdr") or last.get("simfbdr_commit"))
     if run:
         # a run sits at <batch>/runs/<name>, wherever the batch is, so this is never recorded
         out["batch_dir"] = os.path.dirname(os.path.dirname(os.path.normpath(d))) or "."
@@ -153,7 +145,7 @@ def flat(d):
         if isinstance(given.get("batch"), dict):
             out["config_hash"] = shown(given.get("config.yml"))
             out["batch_config_hash"] = shown(given["batch"].get("config.yml"))
-            out["infer_script_hash"] = shown(next(iter(carried(given).values()), None))
+            out["infer_script_hash"] = shown(next(iter((given.get("simfbdr") or {}).values()), None))
     batch_dir = out["batch_dir"] if run else d
     if os.path.exists(os.path.join(batch_dir, "config.yml")):
         # the settings are in the configs. A batch's are given as it set them, and a run's
@@ -232,7 +224,7 @@ def write_batch(d, f):
         "simulated:",
     ]
     for s in simulated:
-        uses = s.get("uses") or [f"simfbdr@{(s.get('simfbdr_commit') or s['simfbd_commit'])}"]
+        uses = s.get("uses") or [f"simfbdr@{s['simfbdr_commit']}"]
         lines += [f"  - added: {text(s['added'])}",
                   f"    uses: [{', '.join(text(u) for u in uses)}]"]
         if s.get("inputs"):
@@ -340,7 +332,7 @@ def status(d):
         # what simfbdr carries is named by its commit. A script that has since changed is not a
         # fault in the batch, so it is said and not counted.
         from . import tools
-        for name, want in carried(given).items():
+        for name, want in (given.get("simfbdr") or {}).items():
             at = tools.SCRIPTS / name
             got = digest(at) if at.exists() else "gone"
             rows.append(("current" if got == want else "differs", f"simfbdr: {name}",

@@ -90,18 +90,6 @@ RUN_RECORD = {
 # what a batch cannot be simulated without, and a run cannot be analyzed without
 BATCH_REQUIRED = ["NINTERVALS", "INTERVAL_WIDTH", "GAMMA_L_SHAPE", "GAMMA_M_SHAPE", "GAMMA_P_SHAPE",
                   "GAMMA_P_RATE", "AGE_MIN", "AGE_MAX", "BIN_WIDTH", "BIN_MAX"]
-# the names these were written under before 2026-10-13, which a config may still use
-FORMERLY = {
-    "rate_prior.speciation.shape": "rate_prior.lambda.shape",
-    "rate_prior.speciation.rate": "rate_prior.lambda.rate",
-    "rate_prior.extinction.shape": "rate_prior.mu.shape",
-    "rate_prior.extinction.rate": "rate_prior.mu.rate",
-    "rate_prior.fossil_sampling.shape": "rate_prior.psi.shape",
-    "rate_prior.fossil_sampling.rate": "rate_prior.psi.rate",
-    "record.extant_sampling_probability": "record.rho",
-    "inference.extant_sampling_probability": "inference.rho",
-}
-
 RUN_REQUIRED = ["MODEL", "REPORTING", "INFER", "COND", "RHO", "GENS", "PRINTGEN"]
 # The value a setting takes when a config leaves it out is in defaults/batch.yml and
 # defaults/run.yml, not here.
